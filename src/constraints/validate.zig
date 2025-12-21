@@ -30,7 +30,9 @@ pub fn validateGraph(allocator: std.mem.Allocator, gr: *const graph.CompositionG
     }
 
     // No namespace collisions
-    for (value_names.keys()) |vn| {
+    var value_it = value_names.iterator();
+    while (value_it.next()) |entry| {
+        const vn = entry.key_ptr.*;
         if (op_ids.contains(vn) or kdf_ids.contains(vn) or aead_ids.contains(vn)) return error.NamespaceCollision;
     }
 

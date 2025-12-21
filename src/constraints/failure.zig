@@ -4,12 +4,12 @@ const errors = @import("errors.zig");
 
 pub fn checkFailureConsistency(allocator: std.mem.Allocator, gr: *const graph.CompositionGraph) ?errors.C4Error {
     // Collect KEM failure values
-    var failure_values = std.ArrayList([]const u8).init(allocator);
-    defer failure_values.deinit();
+    var failure_values = std.ArrayList([]const u8).empty;
+    defer failure_values.deinit(allocator);
 
     for (gr.kem_ops) |op| {
         if (op.canFail()) {
-            if (op.ss_failure_out) |fv| failure_values.append(fv) catch unreachable;
+            if (op.ss_failure_out) |fv| failure_values.append(allocator, fv) catch unreachable;
         }
     }
 
@@ -43,9 +43,10 @@ fn computeBranchAwareReachable(
     start_branch: Branch,
 ) std.StringHashMap(void) {
     var reachable = std.StringHashMap(void).init(allocator);
-    var queue = std.ArrayList(struct { name: []const u8, branch: Branch }).init(allocator);
+    var queue = std.ArrayList(struct { name: []const u8, branch: Branch }).empty;
+    defer queue.deinit(allocator);
 
-    queue.append(.{ .name = start, .branch = start_branch }) catch unreachable;
+    queue.append(allocator, .{ .name = start, .branch = start_branch }) catch unreachable;
 
     while (queue.items.len > 0) {
         const cur = queue.orderedRemove(0);
@@ -65,7 +66,7 @@ fn computeBranchAwareReachable(
             if (can_follow) {
                 const to_ref = edge.to;
                 if (to_ref != .value) continue;
-                queue.append(.{ .name = to_ref.value, .branch = cur.branch }) catch unreachable;
+                queue.append(allocator, .{ .name = to_ref.value, .branch = cur.branch }) catch unreachable;
             }
         }
 
@@ -80,7 +81,7 @@ fn computeBranchAwareReachable(
                 const can_flow = inp_branch == null or inp_branch.? == cur.branch;
 
                 if (can_flow) {
-                    queue.append(.{ .name = call.out_name, .branch = cur.branch }) catch unreachable;
+                    queue.append(allocator, .{ .name = call.out_name, .branch = cur.branch }) catch unreachable;
                 }
             }
         }

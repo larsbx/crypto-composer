@@ -1,12 +1,12 @@
 const std = @import("std");
 const g = @import("ground.zig");
 const notions = @import("notions.zig");
-const asm = @import("assumptions.zig");
+const assumptions = @import("assumptions.zig");
 
 pub const KEMContract = struct {
     name: []const u8,
     notion: notions.ConfNotion,
-    assumption: asm.Assumption,
+    assumption: assumptions.Assumption,
     level: g.SecurityLevel,
 
     pk_bytes: u16,
@@ -72,7 +72,7 @@ pub const AEADContract = struct {
 pub const SigContract = struct {
     name: []const u8,
     notion: notions.IntNotion,
-    assumption: asm.Assumption,
+    assumption: assumptions.Assumption,
     level: g.SecurityLevel,
 
     pk_bytes: u16,

@@ -29,14 +29,14 @@ pub fn main() !void {
 fn usage() !void {
     const w = std.io.getStdOut().writer();
     try w.writeAll(
-        \crypto-compose v0.1
-        \
-        \Commands (TODO):
-        \  check
-        \  emit
-        \  catalog
-        \  enumerate
-        \  help
-        \
+        \\crypto-compose v0.1
+        \\
+        \\Commands (TODO):
+        \\  check
+        \\  emit
+        \\  catalog
+        \\  enumerate
+        \\  help
+        \\
     );
 }

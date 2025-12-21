@@ -88,7 +88,7 @@ pub const KemOp = struct {
     kind: KemOpKind,
     inputs: []const Ref,
 
-    ct_out: ?[]const u8,        // encap only
+    ct_out: ?[]const u8, // encap only
     ss_success_out: []const u8, // always
     ss_failure_out: ?[]const u8, // decap only
 
@@ -128,8 +128,8 @@ pub const AeadOp = struct {
     nonce: Ref,
     aad: ?Ref,
 
-    plaintext: ?Ref,   // seal only
-    ciphertext: ?Ref,  // open only
+    plaintext: ?Ref, // seal only
+    ciphertext: ?Ref, // open only
 
     ct_out: ?[]const u8,
     pt_out: ?[]const u8,
@@ -162,6 +162,7 @@ pub const CompositionGraph = struct {
     aead_ops: []const AeadOp,
     edges: []const FlowEdge,
     outputs: []const Output,
+    owned_strings: []const []const u8 = &.{},
 };
 
 // ---- helpers ----
@@ -184,4 +185,17 @@ pub fn findAeadOp(graph: *const CompositionGraph, id: []const u8) ?*const AeadOp
 pub fn findKemOp(graph: *const CompositionGraph, id: []const u8) ?*const KemOp {
     for (graph.kem_ops) |*op| if (std.mem.eql(u8, op.id, id)) return op;
     return null;
+}
+
+pub fn freeGraph(allocator: std.mem.Allocator, gr: *CompositionGraph) void {
+    if (gr.owned_strings.len > 0) {
+        for (gr.owned_strings) |s| allocator.free(s);
+        allocator.free(gr.owned_strings);
+    }
+    allocator.free(gr.values);
+    allocator.free(gr.kem_ops);
+    allocator.free(gr.kdf_calls);
+    allocator.free(gr.aead_ops);
+    allocator.free(gr.edges);
+    allocator.free(gr.outputs);
 }

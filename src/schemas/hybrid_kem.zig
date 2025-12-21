@@ -63,7 +63,14 @@ pub fn expandHybridKEMEncap(
     const pq = findKEM(bindings, "pq") orelse return error.MissingBinding;
     const kdf = findKDF(bindings, "kdf") orelse return error.MissingBinding;
 
+    var owned_strings = std.ArrayList([]const u8).empty;
+    errdefer {
+        for (owned_strings.items) |s| allocator.free(s);
+        owned_strings.deinit(allocator);
+    }
+
     const suite_id = try buildSuiteId(allocator, classical, pq, kdf);
+    try owned_strings.append(allocator, suite_id);
 
     const ctx = graph.DerivationContext{
         .schema_id = "HybridKEM",
@@ -74,23 +81,24 @@ pub fn expandHybridKEMEncap(
     };
 
     const combine_label = try canonicalLabel(allocator, product.protocol_id, "HybridKEM", .session, .key, "combine");
+    try owned_strings.append(allocator, combine_label);
 
-    var values = std.ArrayList(graph.Value).init(allocator);
-    var kem_ops = std.ArrayList(graph.KemOp).init(allocator);
-    var kdf_calls = std.ArrayList(graph.KDFCall).init(allocator);
-    var aead_ops = std.ArrayList(graph.AeadOp).init(allocator);
-    var edges = std.ArrayList(graph.FlowEdge).init(allocator);
-    var outputs = std.ArrayList(graph.Output).init(allocator);
+    var values = std.ArrayList(graph.Value).empty;
+    var kem_ops = std.ArrayList(graph.KemOp).empty;
+    var kdf_calls = std.ArrayList(graph.KDFCall).empty;
+    var aead_ops = std.ArrayList(graph.AeadOp).empty;
+    var edges = std.ArrayList(graph.FlowEdge).empty;
+    var outputs = std.ArrayList(graph.Output).empty;
 
     // Ciphertexts
-    try values.append(.{
+    try values.append(allocator, .{
         .name = "ct_classical",
         .entropy = .{ .uniform = 0 }, // TODO(v0.2+): model public randomness / distribution.
         .timing = .constant_time,
         .secret = false,
         .source = .{ .kem_op = .{ .op_id = "kem_classical", .output_kind = .ciphertext } },
     });
-    try values.append(.{
+    try values.append(allocator, .{
         .name = "ct_pq",
         .entropy = .{ .uniform = 0 },
         .timing = .constant_time,
@@ -99,14 +107,14 @@ pub fn expandHybridKEMEncap(
     });
 
     // Shared secrets (encap success only)
-    try values.append(.{
+    try values.append(allocator, .{
         .name = "ss_classical",
         .entropy = classical.ss_entropy_success,
         .timing = classical.timing,
         .secret = true,
         .source = .{ .kem_op = .{ .op_id = "kem_classical", .output_kind = .shared_secret_success } },
     });
-    try values.append(.{
+    try values.append(allocator, .{
         .name = "ss_pq",
         .entropy = pq.ss_entropy_success,
         .timing = pq.timing,
@@ -115,7 +123,7 @@ pub fn expandHybridKEMEncap(
     });
 
     // Reject boundary structural
-    try values.append(.{
+    try values.append(allocator, .{
         .name = "reject_boundary",
         .entropy = .{ .uniform = 0 },
         .timing = .constant_time,
@@ -124,7 +132,7 @@ pub fn expandHybridKEMEncap(
     });
 
     // KDF output
-    try values.append(.{
+    try values.append(allocator, .{
         .name = "hybrid_ss",
         .entropy = kdf.outputEntropy(.key, 256, .transcript_bound),
         .timing = kdf.timing,
@@ -132,7 +140,7 @@ pub fn expandHybridKEMEncap(
         .source = .{ .kdf_call = "kdf_combine" },
     });
 
-    try kem_ops.append(.{
+    try kem_ops.append(allocator, .{
         .id = "kem_classical",
         .kem_name = classical.name,
         .kind = .encap,
@@ -144,7 +152,7 @@ pub fn expandHybridKEMEncap(
         .out_ctx_kind_failure = null,
     });
 
-    try kem_ops.append(.{
+    try kem_ops.append(allocator, .{
         .id = "kem_pq",
         .kem_name = pq.name,
         .kind = .encap,
@@ -156,7 +164,7 @@ pub fn expandHybridKEMEncap(
         .out_ctx_kind_failure = null,
     });
 
-    try kdf_calls.append(.{
+    try kdf_calls.append(allocator, .{
         .id = "kdf_combine",
         .kdf_name = kdf.name,
         .inputs = &[_]graph.ValueRef{
@@ -174,24 +182,33 @@ pub fn expandHybridKEMEncap(
     });
 
     // KDF -> value edge
-    try edges.append(.{
+    try edges.append(allocator, .{
         .from = .{ .direct = .{ .kdf_call = "kdf_combine" } },
         .to = .{ .value = "hybrid_ss" },
     });
 
     // Outputs
-    try outputs.append(.{ .name = "ct_classical", .value = "ct_classical", .kind = .value, .public = true });
-    try outputs.append(.{ .name = "ct_pq", .value = "ct_pq", .kind = .value, .public = true });
-    try outputs.append(.{ .name = "shared_secret", .value = "hybrid_ss", .kind = .value, .public = false });
-    try outputs.append(.{ .name = "reject", .value = "reject_boundary", .kind = .reject_boundary, .public = false });
+    try outputs.append(allocator, .{ .name = "ct_classical", .value = "ct_classical", .kind = .value, .public = true });
+    try outputs.append(allocator, .{ .name = "ct_pq", .value = "ct_pq", .kind = .value, .public = true });
+    try outputs.append(allocator, .{ .name = "shared_secret", .value = "hybrid_ss", .kind = .value, .public = false });
+    try outputs.append(allocator, .{ .name = "reject", .value = "reject_boundary", .kind = .reject_boundary, .public = false });
+
+    const values_slice = try values.toOwnedSlice(allocator);
+    const kem_ops_slice = try kem_ops.toOwnedSlice(allocator);
+    const kdf_calls_slice = try kdf_calls.toOwnedSlice(allocator);
+    const aead_ops_slice = try aead_ops.toOwnedSlice(allocator);
+    const edges_slice = try edges.toOwnedSlice(allocator);
+    const outputs_slice = try outputs.toOwnedSlice(allocator);
+    const owned_slice = if (owned_strings.items.len == 0) &.{} else try owned_strings.toOwnedSlice(allocator);
 
     return .{
-        .values = try values.toOwnedSlice(),
-        .kem_ops = try kem_ops.toOwnedSlice(),
-        .kdf_calls = try kdf_calls.toOwnedSlice(),
-        .aead_ops = try aead_ops.toOwnedSlice(),
-        .edges = try edges.toOwnedSlice(),
-        .outputs = try outputs.toOwnedSlice(),
+        .values = values_slice,
+        .kem_ops = kem_ops_slice,
+        .kdf_calls = kdf_calls_slice,
+        .aead_ops = aead_ops_slice,
+        .edges = edges_slice,
+        .outputs = outputs_slice,
+        .owned_strings = owned_slice,
     };
 }
 
@@ -205,7 +222,14 @@ pub fn expandHybridKEMDecap(
     const pq = findKEM(bindings, "pq") orelse return error.MissingBinding;
     const kdf = findKDF(bindings, "kdf") orelse return error.MissingBinding;
 
+    var owned_strings = std.ArrayList([]const u8).empty;
+    errdefer {
+        for (owned_strings.items) |s| allocator.free(s);
+        owned_strings.deinit(allocator);
+    }
+
     const suite_id = try buildSuiteId(allocator, classical, pq, kdf);
+    try owned_strings.append(allocator, suite_id);
 
     const ctx = graph.DerivationContext{
         .schema_id = "HybridKEM",
@@ -216,29 +240,30 @@ pub fn expandHybridKEMDecap(
     };
 
     const combine_label = try canonicalLabel(allocator, product.protocol_id, "HybridKEM", .session, .key, "combine");
+    try owned_strings.append(allocator, combine_label);
 
-    var values = std.ArrayList(graph.Value).init(allocator);
-    var kem_ops = std.ArrayList(graph.KemOp).init(allocator);
-    var kdf_calls = std.ArrayList(graph.KDFCall).init(allocator);
-    var aead_ops = std.ArrayList(graph.AeadOp).init(allocator);
-    var edges = std.ArrayList(graph.FlowEdge).init(allocator);
-    var outputs = std.ArrayList(graph.Output).init(allocator);
+    var values = std.ArrayList(graph.Value).empty;
+    var kem_ops = std.ArrayList(graph.KemOp).empty;
+    var kdf_calls = std.ArrayList(graph.KDFCall).empty;
+    var aead_ops = std.ArrayList(graph.AeadOp).empty;
+    var edges = std.ArrayList(graph.FlowEdge).empty;
+    var outputs = std.ArrayList(graph.Output).empty;
 
     // Inputs (sk + ct)
-    try values.append(.{ .name = "sk_classical", .entropy = .{ .uniform = 0 }, .timing = .constant_time, .secret = true, .source = .input });
-    try values.append(.{ .name = "sk_pq", .entropy = .{ .uniform = 0 }, .timing = .constant_time, .secret = true, .source = .input });
-    try values.append(.{ .name = "ct_classical", .entropy = .{ .uniform = 0 }, .timing = .constant_time, .secret = false, .source = .input });
-    try values.append(.{ .name = "ct_pq", .entropy = .{ .uniform = 0 }, .timing = .constant_time, .secret = false, .source = .input });
+    try values.append(allocator, .{ .name = "sk_classical", .entropy = .{ .uniform = 0 }, .timing = .constant_time, .secret = true, .source = .input });
+    try values.append(allocator, .{ .name = "sk_pq", .entropy = .{ .uniform = 0 }, .timing = .constant_time, .secret = true, .source = .input });
+    try values.append(allocator, .{ .name = "ct_classical", .entropy = .{ .uniform = 0 }, .timing = .constant_time, .secret = false, .source = .input });
+    try values.append(allocator, .{ .name = "ct_pq", .entropy = .{ .uniform = 0 }, .timing = .constant_time, .secret = false, .source = .input });
 
     // Decap outputs
-    try values.append(.{
+    try values.append(allocator, .{
         .name = "ss_classical_success",
         .entropy = classical.ss_entropy_success,
         .timing = classical.timing,
         .secret = true,
         .source = .{ .kem_op = .{ .op_id = "kem_classical_decap", .output_kind = .shared_secret_success } },
     });
-    try values.append(.{
+    try values.append(allocator, .{
         .name = "ss_classical_failure",
         .entropy = classical.ss_entropy_failure,
         .timing = classical.timing,
@@ -246,14 +271,14 @@ pub fn expandHybridKEMDecap(
         .source = .{ .kem_op = .{ .op_id = "kem_classical_decap", .output_kind = .shared_secret_failure } },
     });
 
-    try values.append(.{
+    try values.append(allocator, .{
         .name = "ss_pq_success",
         .entropy = pq.ss_entropy_success,
         .timing = pq.timing,
         .secret = true,
         .source = .{ .kem_op = .{ .op_id = "kem_pq_decap", .output_kind = .shared_secret_success } },
     });
-    try values.append(.{
+    try values.append(allocator, .{
         .name = "ss_pq_failure",
         .entropy = pq.ss_entropy_failure,
         .timing = pq.timing,
@@ -262,13 +287,13 @@ pub fn expandHybridKEMDecap(
     });
 
     // Reject boundary structural
-    try values.append(.{ .name = "reject_boundary", .entropy = .{ .uniform = 0 }, .timing = .constant_time, .secret = false, .source = .structural });
+    try values.append(allocator, .{ .name = "reject_boundary", .entropy = .{ .uniform = 0 }, .timing = .constant_time, .secret = false, .source = .structural });
 
     // KDF output
-    try values.append(.{ .name = "hybrid_ss", .entropy = kdf.outputEntropy(.key, 256, .transcript_bound), .timing = kdf.timing, .secret = true, .source = .{ .kdf_call = "kdf_combine" } });
+    try values.append(allocator, .{ .name = "hybrid_ss", .entropy = kdf.outputEntropy(.key, 256, .transcript_bound), .timing = kdf.timing, .secret = true, .source = .{ .kdf_call = "kdf_combine" } });
 
     // Kem ops
-    try kem_ops.append(.{
+    try kem_ops.append(allocator, .{
         .id = "kem_classical_decap",
         .kem_name = classical.name,
         .kind = .decap,
@@ -279,7 +304,7 @@ pub fn expandHybridKEMDecap(
         .out_ctx_kind_success = .transcript_bound,
         .out_ctx_kind_failure = .ciphertext_bound,
     });
-    try kem_ops.append(.{
+    try kem_ops.append(allocator, .{
         .id = "kem_pq_decap",
         .kem_name = pq.name,
         .kind = .decap,
@@ -292,7 +317,7 @@ pub fn expandHybridKEMDecap(
     });
 
     // KDF call success-only inputs
-    try kdf_calls.append(.{
+    try kdf_calls.append(allocator, .{
         .id = "kdf_combine",
         .kdf_name = kdf.name,
         .inputs = &[_]graph.ValueRef{
@@ -310,28 +335,37 @@ pub fn expandHybridKEMDecap(
     });
 
     // KDF -> value edge
-    try edges.append(.{ .from = .{ .direct = .{ .kdf_call = "kdf_combine" } }, .to = .{ .value = "hybrid_ss" } });
+    try edges.append(allocator, .{ .from = .{ .direct = .{ .kdf_call = "kdf_combine" } }, .to = .{ .value = "hybrid_ss" } });
 
     // Failure edges -> reject boundary
-    try edges.append(.{
+    try edges.append(allocator, .{
         .from = .{ .on_failure = .{ .source = .{ .value = "ss_classical_failure" }, .fallback = classical.ss_entropy_failure } },
         .to = .{ .value = "reject_boundary" },
     });
-    try edges.append(.{
+    try edges.append(allocator, .{
         .from = .{ .on_failure = .{ .source = .{ .value = "ss_pq_failure" }, .fallback = pq.ss_entropy_failure } },
         .to = .{ .value = "reject_boundary" },
     });
 
     // Outputs
-    try outputs.append(.{ .name = "shared_secret", .value = "hybrid_ss", .kind = .value, .public = false });
-    try outputs.append(.{ .name = "reject", .value = "reject_boundary", .kind = .reject_boundary, .public = false });
+    try outputs.append(allocator, .{ .name = "shared_secret", .value = "hybrid_ss", .kind = .value, .public = false });
+    try outputs.append(allocator, .{ .name = "reject", .value = "reject_boundary", .kind = .reject_boundary, .public = false });
+
+    const values_slice = try values.toOwnedSlice(allocator);
+    const kem_ops_slice = try kem_ops.toOwnedSlice(allocator);
+    const kdf_calls_slice = try kdf_calls.toOwnedSlice(allocator);
+    const aead_ops_slice = try aead_ops.toOwnedSlice(allocator);
+    const edges_slice = try edges.toOwnedSlice(allocator);
+    const outputs_slice = try outputs.toOwnedSlice(allocator);
+    const owned_slice = if (owned_strings.items.len == 0) &.{} else try owned_strings.toOwnedSlice(allocator);
 
     return .{
-        .values = try values.toOwnedSlice(),
-        .kem_ops = try kem_ops.toOwnedSlice(),
-        .kdf_calls = try kdf_calls.toOwnedSlice(),
-        .aead_ops = try aead_ops.toOwnedSlice(),
-        .edges = try edges.toOwnedSlice(),
-        .outputs = try outputs.toOwnedSlice(),
+        .values = values_slice,
+        .kem_ops = kem_ops_slice,
+        .kdf_calls = kdf_calls_slice,
+        .aead_ops = aead_ops_slice,
+        .edges = edges_slice,
+        .outputs = outputs_slice,
+        .owned_strings = owned_slice,
     };
 }
