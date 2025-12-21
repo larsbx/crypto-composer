@@ -1,112 +1,84 @@
-docs/QUICKSTART.md
 # Quickstart
 
----
-
-## 1. Install Prerequisites
-
-### Zig
-Install Zig ≥ 0.13:
+## Prerequisites
+- Zig >= 0.13
+- Python 3 (manifest tooling)
 
 ```bash
 zig version
-
-Python
-
-Python 3 is required for hash manifest tooling:
-
 python3 --version
+```
 
-2. Build and Test
-
-From the repo root:
-
+## Build and test
+```bash
 make test
-
+```
 
 This runs:
+- graph expansion tests
+- negative constraint tests
+- schema invariants
 
-graph expansion tests
-
-negative constraint tests
-
-schema invariants
-
-3. Run the Full CI Locally
+## Run the full CI locally
+```bash
 make ci
+```
 
+Equivalent to:
+- formatting check
+- tests
+- manifest verification
 
-Equivalent to GitHub Actions:
-
-formatting check
-
-tests
-
-manifest verification
-
-4. Verify Integrity
-
-To regenerate the hash manifest:
-
+## Verify integrity
+```bash
 make manifest
-
-
-To verify all tracked files:
-
 make verify-manifest
+```
 
+## Codebase tour
+- `src/types/`: entropy, contracts, assumptions.
+- `src/catalog/`: primitive registries and contracts.
+- `src/schemas/`: schema expansions (`hybrid_kem`, `kem_dem`).
+- `src/constraints/`: C1-C6 checks and W1 advisory warning.
+- `src/emit/`: artifact and vector scaffolding.
+- `test/`: proof-driven tests and constraint fixtures.
+- `constraint-test-generator.zig`: generates proof-bound constraint test stubs.
 
-This ensures no file drift.
+## How the checker works
+1. A schema expansion constructs a `CompositionGraph`.
+2. Constraint checks traverse values, ops, and edges to report violations.
+3. Tests assert on those violations and require a proof statement before they run.
 
-5. What to Read First
+## What to read first
+- `src/types/ground.zig`: entropy, context, failure modes.
+- `src/schemas/hybrid_kem.zig`: minimal composition expansion.
+- `src/schemas/kem_dem.zig`: nonce + AEAD discipline.
+- `src/constraints/`: why invalid constructions fail.
 
-If you want to understand the system:
-
-src/types/ground.zig — entropy, context, failure modes
-
-src/schemas/hybrid_kem.zig — minimal composition
-
-src/schemas/kem_dem.zig — nonce + AEAD discipline
-
-src/constraints/ — why invalid constructions fail
-
-6. Adding a New Primitive (Example)
-
-Add contract to src/catalog/
-
-Ensure compile-time invariants hold
-
-Re-run:
-
-make test
-
+## Adding a new primitive (example)
+1. Add a contract in `src/catalog/`.
+2. Document assumptions in `src/types/assumptions.zig`.
+3. Add tests with proofs in `test/all_tests.zig`.
+4. Run `make test`.
 
 Invalid contracts should fail at compile time.
 
-7. Adding a New Schema
-
-Define expansion in src/schemas/
-
-Produce a CompositionGraph
-
-Let existing constraints apply automatically
-
-Add negative tests
+## Adding a new schema
+1. Define expansion in `src/schemas/`.
+2. Produce a `CompositionGraph`.
+3. Let existing constraints apply automatically.
+4. Add negative and positive tests with proofs.
 
 If you need a new constraint, add it explicitly.
 
-Philosophy
-
+## Philosophy
 If a cryptographic assumption is important, it must be written down.
 If a failure path exists, it must be modeled.
 If a nonce can be reused, the checker should scream.
 
 This tool exists to make those failures impossible to ignore.
 
-TODO (Quickstart)
-
-TODO(v0.2): CLI walkthrough
-
-TODO(v0.2): Example artifact output
-
-TODO(v0.3): Visualization of graphs
+## TODO (Quickstart)
+- TODO(v0.2): CLI walkthrough
+- TODO(v0.2): Example artifact output
+- TODO(v0.3): Visualization of graphs
