@@ -106,9 +106,18 @@ pub const ProductRequirements = struct {
     post_compromise_security: bool = false,
 };
 
-pub const WireFormat = struct {
-    // TODO(v0.2+): TLS, HPKE, COSE wire encoding rules.
-    _reserved: void = {},
+pub const WireFormat = enum {
+    tls13,
+    hpke,
+    cose,
+
+    pub fn protocolId(self: @This()) []const u8 {
+        return switch (self) {
+            .tls13 => "tls13",
+            .hpke => "hpke",
+            .cose => "cose",
+        };
+    }
 };
 
 pub const Product = struct {
@@ -116,4 +125,17 @@ pub const Product = struct {
     protocol_id: []const u8,
     requirements: ProductRequirements,
     wire_format: ?WireFormat = null, // TODO(v0.2+): attach encoding rules.
+
+    pub fn validate(self: *const @This()) !void {
+        try validateProduct(self);
+    }
 };
+
+pub fn validateProduct(product: *const Product) !void {
+    if (product.protocol_id.len == 0) return error.InvalidProtocolId;
+    if (product.wire_format) |wf| {
+        if (!std.mem.eql(u8, product.protocol_id, wf.protocolId())) {
+            return error.WireFormatProtocolMismatch;
+        }
+    }
+}

@@ -59,6 +59,7 @@ pub fn expandHybridKEMEncap(
     bindings: []const contracts.Binding,
     product: *const contracts.Product,
 ) !graph.CompositionGraph {
+    try product.validate();
     const classical = findKEM(bindings, "classical") orelse return error.MissingBinding;
     const pq = findKEM(bindings, "pq") orelse return error.MissingBinding;
     const kdf = findKDF(bindings, "kdf") orelse return error.MissingBinding;
@@ -218,6 +219,7 @@ pub fn expandHybridKEMDecap(
     bindings: []const contracts.Binding,
     product: *const contracts.Product,
 ) !graph.CompositionGraph {
+    try product.validate();
     const classical = findKEM(bindings, "classical") orelse return error.MissingBinding;
     const pq = findKEM(bindings, "pq") orelse return error.MissingBinding;
     const kdf = findKDF(bindings, "kdf") orelse return error.MissingBinding;

@@ -609,6 +609,45 @@ test "C6 rejects non-key-committing AEAD when required" {
     try harness.expectConstraint(proof, std.testing.allocator, &g, &cat, product.requirements, .c6_key_commitment, .present);
 }
 
+test "Product rejects wire format protocol mismatch" {
+    const proof = harness.Proof{
+        .statement = "Product wire format must agree with protocol id.",
+        .argument = "A TLS protocol id cannot claim HPKE wire format.",
+        .constraints = &[_]harness.ConstraintId{.meta_pdd},
+    };
+    try harness.requireProof(proof);
+
+    var product = composer.types.contracts.Product{
+        .name = "TLS13-Hybrid-KEX",
+        .protocol_id = "tls13",
+        .requirements = .{},
+        .wire_format = .hpke,
+    };
+
+    try std.testing.expectError(
+        error.WireFormatProtocolMismatch,
+        composer.types.contracts.validateProduct(&product),
+    );
+}
+
+test "Product accepts matching wire format" {
+    const proof = harness.Proof{
+        .statement = "Product wire format matches protocol id.",
+        .argument = "The HPKE wire format must match the hpke protocol id.",
+        .constraints = &[_]harness.ConstraintId{.meta_pdd},
+    };
+    try harness.requireProof(proof);
+
+    var product = composer.types.contracts.Product{
+        .name = "HPKE-KEMDEM",
+        .protocol_id = "hpke",
+        .requirements = .{},
+        .wire_format = .hpke,
+    };
+
+    try composer.types.contracts.validateProduct(&product);
+}
+
 test "HybridKEM encap graph validates" {
     const proof = harness.Proof{
         .statement = "HybridKEM encap graph should validate and satisfy constraints.",

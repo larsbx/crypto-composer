@@ -38,6 +38,7 @@ pub fn expandKEMDEMSeal(
     product: *const contracts.Product,
     message_id: u64,
 ) !graph.CompositionGraph {
+    try product.validate();
     const kem = findKEM(bindings, "kem") orelse return error.MissingBinding;
     const kdf = findKDF(bindings, "kdf") orelse return error.MissingBinding;
     const aead = findAEAD(bindings, "aead") orelse return error.MissingBinding;
@@ -191,6 +192,7 @@ pub fn expandKEMDEMOpen(
     product: *const contracts.Product,
     message_id: u64,
 ) !graph.CompositionGraph {
+    try product.validate();
     const kem = findKEM(bindings, "kem") orelse return error.MissingBinding;
     const kdf = findKDF(bindings, "kdf") orelse return error.MissingBinding;
     const aead = findAEAD(bindings, "aead") orelse return error.MissingBinding;
