@@ -287,6 +287,86 @@ test "C4 rejects failure reaching secret output" {
     try harness.expectConstraint(proof, std.testing.allocator, &g, &cat, .{}, .c4_failure_consistency, .present);
 }
 
+test "C4 rejects AEAD failure without reject boundary" {
+    const proof = harness.Proof{
+        .statement = "AEAD failure paths must terminate at reject boundary (C4).",
+        .argument = "An AEAD open failure is routed to a non-reject value with no path to rejection.",
+        .constraints = &[_]harness.ConstraintId{.c4_failure_consistency},
+    };
+
+    const cat = composer.catalog.DefaultCatalog;
+    const aead = composer.catalog.aeads.AES_256_GCM;
+    const kdf = composer.catalog.kdfs.HKDF_SHA256;
+    const ctx = graph.DerivationContext{
+        .schema_id = "Test",
+        .protocol_id = "test",
+        .suite_id = "suite",
+        .transcript_hash = null,
+        .message_id = 0,
+    };
+
+    const values = [_]graph.Value{
+        .{ .name = "key", .entropy = .{ .uniform = 256 }, .timing = .constant_time, .secret = true, .source = .input },
+        .{ .name = "seed", .entropy = .{ .uniform = 256 }, .timing = .constant_time, .secret = true, .source = .input },
+        .{ .name = "nonce", .entropy = kdf.outputEntropy(.nonce, aead.nonce_bits, .message_bound), .timing = kdf.timing, .secret = false, .source = .{ .kdf_call = "kdf_nonce" } },
+        .{ .name = "aad", .entropy = .{ .uniform = 0 }, .timing = .constant_time, .secret = false, .source = .input },
+        .{ .name = "ct", .entropy = .{ .uniform = 0 }, .timing = .constant_time, .secret = false, .source = .input },
+        .{ .name = "plaintext", .entropy = .{ .uniform = 0 }, .timing = aead.timing, .secret = true, .source = .{ .aead_op = .{ .op_id = "aead_open", .output_kind = .plaintext } } },
+        .{ .name = "aead_failure", .entropy = .{ .uniform = 0 }, .timing = .constant_time, .secret = false, .source = .structural },
+        .{ .name = "reject_boundary", .entropy = .{ .uniform = 0 }, .timing = .constant_time, .secret = false, .source = .structural },
+    };
+    const kdf_calls = [_]graph.KDFCall{
+        .{
+            .id = "kdf_nonce",
+            .kdf_name = kdf.name,
+            .inputs = &[_]graph.ValueRef{.{ .direct = .{ .value = "seed" } }},
+            .in_required_ctx_kind = .none,
+            .label = "test/nonce",
+            .ctx = ctx,
+            .scope = .message,
+            .use = .nonce,
+            .out_bits = aead.nonce_bits,
+            .out_name = "nonce",
+            .out_ctx_kind = .message_bound,
+        },
+    };
+    const aead_ops = [_]graph.AeadOp{
+        .{
+            .id = "aead_open",
+            .aead_name = aead.name,
+            .kind = .open,
+            .key = .{ .value = "key" },
+            .nonce = .{ .value = "nonce" },
+            .aad = .{ .value = "aad" },
+            .plaintext = null,
+            .ciphertext = .{ .value = "ct" },
+            .ct_out = null,
+            .pt_out = "plaintext",
+            .failure_out = "aead_failure",
+        },
+    };
+    const edges = [_]graph.FlowEdge{
+        .{ .from = .{ .direct = .{ .kdf_call = "kdf_nonce" } }, .to = .{ .value = "nonce" } },
+        .{ .from = .{ .on_success = .{ .aead_op = "aead_open" } }, .to = .{ .value = "plaintext" } },
+        .{ .from = .{ .on_failure = .{ .source = .{ .aead_op = "aead_open" }, .fallback = .{ .uniform = 0 } } }, .to = .{ .value = "aead_failure" } },
+    };
+    const outputs = [_]graph.Output{
+        .{ .name = "plaintext", .value = "plaintext", .kind = .value, .public = false },
+        .{ .name = "reject", .value = "reject_boundary", .kind = .reject_boundary, .public = false },
+    };
+
+    const g = graph.CompositionGraph{
+        .values = values[0..],
+        .kem_ops = &[_]graph.KemOp{},
+        .kdf_calls = kdf_calls[0..],
+        .aead_ops = aead_ops[0..],
+        .edges = edges[0..],
+        .outputs = outputs[0..],
+    };
+
+    try harness.expectConstraint(proof, std.testing.allocator, &g, &cat, .{}, .c4_failure_consistency, .present);
+}
+
 test "C5 warns on secret data-dependent timing" {
     const proof = harness.Proof{
         .statement = "Secret values must not be data-dependent in timing (C5 warning).",

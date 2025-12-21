@@ -13,7 +13,11 @@ pub fn checkFailureConsistency(allocator: std.mem.Allocator, gr: *const graph.Co
         }
     }
 
-    // TODO(v0.2+): collect AEAD failures as "virtual failure values" and enforce they go to reject_boundary.
+    for (gr.aead_ops) |op| {
+        if (op.canFail()) {
+            if (op.failure_out) |fv| failure_values.append(allocator, fv) catch unreachable;
+        }
+    }
 
     for (failure_values.items) |fv| {
         var reachable = computeBranchAwareReachable(allocator, gr, fv, .failure);

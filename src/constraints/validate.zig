@@ -59,6 +59,7 @@ pub fn validateGraph(allocator: std.mem.Allocator, gr: *const graph.CompositionG
     for (gr.aead_ops) |op| {
         if (op.ct_out) |ct| if (!value_names.contains(ct)) return error.AeadOutputMissing;
         if (op.pt_out) |pt| if (!value_names.contains(pt)) return error.AeadOutputMissing;
+        if (op.failure_out) |fv| if (!value_names.contains(fv)) return error.AeadOutputMissing;
     }
 
     // Outputs reference values
