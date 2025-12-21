@@ -23,12 +23,16 @@ pub const KEMContract = struct {
 pub const KDFContract = struct {
     name: []const u8,
     notion: notions.PrfNotion,
+    level: g.SecurityLevel,
     timing: g.TimingClass,
     max_output_bytes: u32,
 
-    pub fn accepts(self: @This(), input: g.EntropyClass) bool {
-        _ = self;
-        const min_required: u16 = 128; // TODO(v0.2+): couple this to security level / product.
+    pub fn requiredInputBits(self: @This(), out_bits: u16) u16 {
+        return @min(out_bits, self.level.bits);
+    }
+
+    pub fn accepts(self: @This(), input: g.EntropyClass, out_bits: u16) bool {
+        const min_required = self.requiredInputBits(out_bits);
         switch (input) {
             .conditioned => |c| return c.base.minEntropyBits() >= min_required,
             .uniform => |n| return n >= min_required,

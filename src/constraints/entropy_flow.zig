@@ -20,9 +20,9 @@ pub fn checkEntropyFlow(gr: *const graph.CompositionGraph, cat: *const catalog.C
             };
 
             const provided_bits = effective_entropy.minEntropyBits();
-            const required_bits: u16 = 128; // TODO(v0.2+): drive from KDF/level.
+            const required_bits = kdf.requiredInputBits(call.out_bits);
 
-            if (provided_bits < required_bits or !kdf.accepts(effective_entropy)) {
+            if (provided_bits < required_bits or !kdf.accepts(effective_entropy, call.out_bits)) {
                 return .{ .entropy_underflow = .{ .kdf_call = call.id, .input = r.value, .provided_bits = provided_bits, .required_bits = required_bits } };
             }
 

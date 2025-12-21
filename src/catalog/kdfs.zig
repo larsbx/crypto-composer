@@ -6,6 +6,7 @@ const g = @import("../types/ground.zig");
 pub const HKDF_SHA256 = c.KDFContract{
     .name = "HKDF-SHA256",
     .notion = .prf,
+    .level = .{ .bits = 128 },
     .timing = .constant_time,
     .max_output_bytes = 255 * 32,
 };

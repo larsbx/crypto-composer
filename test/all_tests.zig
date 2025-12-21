@@ -110,6 +110,64 @@ test "C1 rejects insufficient entropy input" {
     try harness.expectConstraint(proof, std.testing.allocator, &g, &cat, .{}, .c1_entropy_flow, .present);
 }
 
+test "C1 accepts entropy at security level for short output" {
+    const proof = harness.Proof{
+        .statement = "C1 scales input entropy requirements with KDF security level.",
+        .argument = "A 64-bit output only requires 64 bits of input entropy when the KDF level is higher.",
+        .constraints = &[_]harness.ConstraintId{ .overall_valid, .c1_entropy_flow },
+    };
+
+    const cat = composer.catalog.DefaultCatalog;
+    const kdf = composer.catalog.kdfs.HKDF_SHA256;
+    const ctx = graph.DerivationContext{
+        .schema_id = "Test",
+        .protocol_id = "test",
+        .suite_id = "suite",
+        .transcript_hash = null,
+        .message_id = null,
+    };
+
+    const values = [_]graph.Value{
+        .{ .name = "seed", .entropy = .{ .uniform = 64 }, .timing = .constant_time, .secret = true, .source = .input },
+        .{ .name = "out", .entropy = kdf.outputEntropy(.key, 64, .transcript_bound), .timing = kdf.timing, .secret = true, .source = .{ .kdf_call = "kdf1" } },
+        .{ .name = "reject_boundary", .entropy = .{ .uniform = 0 }, .timing = .constant_time, .secret = false, .source = .structural },
+    };
+    const kdf_calls = [_]graph.KDFCall{
+        .{
+            .id = "kdf1",
+            .kdf_name = kdf.name,
+            .inputs = &[_]graph.ValueRef{.{ .direct = .{ .value = "seed" } }},
+            .in_required_ctx_kind = .none,
+            .label = "test/kdf1",
+            .ctx = ctx,
+            .scope = .session,
+            .use = .key,
+            .out_bits = 64,
+            .out_name = "out",
+            .out_ctx_kind = .transcript_bound,
+        },
+    };
+    const edges = [_]graph.FlowEdge{
+        .{ .from = .{ .direct = .{ .kdf_call = "kdf1" } }, .to = .{ .value = "out" } },
+    };
+    const outputs = [_]graph.Output{
+        .{ .name = "out", .value = "out", .kind = .value, .public = false },
+        .{ .name = "reject", .value = "reject_boundary", .kind = .reject_boundary, .public = false },
+    };
+
+    const g = graph.CompositionGraph{
+        .values = values[0..],
+        .kem_ops = &[_]graph.KemOp{},
+        .kdf_calls = kdf_calls[0..],
+        .aead_ops = &[_]graph.AeadOp{},
+        .edges = edges[0..],
+        .outputs = outputs[0..],
+    };
+
+    try harness.expectConstraint(proof, std.testing.allocator, &g, &cat, .{}, .c1_entropy_flow, .absent);
+    try harness.expectConstraint(proof, std.testing.allocator, &g, &cat, .{}, .overall_valid, .present);
+}
+
 test "C2 rejects duplicate labels" {
     const proof = harness.Proof{
         .statement = "Domain separation requires unique labels (C2).",
