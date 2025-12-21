@@ -33,10 +33,42 @@ pub const ML_KEM_768 = c.KEMContract{
     .timing = .constant_time,
 };
 
-// TODO(v0.2+): add ML-KEM-512, ML-KEM-1024, P-256 etc.
+pub const ML_KEM_512 = c.KEMContract{
+    .name = "ML-KEM-512",
+    .notion = .ind_cca2,
+    .assumption = .{ .name = "MLWE(k=2)", .class = .lattice, .params = "k=2,n=256,q=3329" },
+    .level = .{ .bits = 128 },
+    .pk_bytes = 800,
+    .sk_bytes = 1632,
+    .ct_bytes = 768,
+    .ss_bytes = 32,
+    .ss_entropy_success = .{ .conditioned = .{ .base = &.{ .uniform = 256 }, .ctx_kind = .transcript_bound } },
+    .ss_entropy_failure = .{ .conditioned = .{ .base = &.{ .min_entropy = 0 }, .ctx_kind = .ciphertext_bound } },
+    .failure = .implicit_reject,
+    .timing = .constant_time,
+};
+
+pub const ML_KEM_1024 = c.KEMContract{
+    .name = "ML-KEM-1024",
+    .notion = .ind_cca2,
+    .assumption = .{ .name = "MLWE(k=4)", .class = .lattice, .params = "k=4,n=256,q=3329" },
+    .level = .{ .bits = 256 },
+    .pk_bytes = 1568,
+    .sk_bytes = 3168,
+    .ct_bytes = 1568,
+    .ss_bytes = 32,
+    .ss_entropy_success = .{ .conditioned = .{ .base = &.{ .uniform = 256 }, .ctx_kind = .transcript_bound } },
+    .ss_entropy_failure = .{ .conditioned = .{ .base = &.{ .min_entropy = 0 }, .ctx_kind = .ciphertext_bound } },
+    .failure = .implicit_reject,
+    .timing = .constant_time,
+};
+
+// TODO(v0.2+): add P-256 etc.
 
 pub fn findByName(name: []const u8) ?*const c.KEMContract {
     if (std.mem.eql(u8, name, X25519.name)) return &X25519;
+    if (std.mem.eql(u8, name, ML_KEM_512.name)) return &ML_KEM_512;
     if (std.mem.eql(u8, name, ML_KEM_768.name)) return &ML_KEM_768;
+    if (std.mem.eql(u8, name, ML_KEM_1024.name)) return &ML_KEM_1024;
     return null;
 }

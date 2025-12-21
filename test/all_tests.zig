@@ -53,6 +53,18 @@ test "constraint test generator emits proof-bound stubs" {
     );
 }
 
+test "catalog includes ML-KEM-512 and ML-KEM-1024" {
+    const proof = harness.Proof{
+        .statement = "The catalog should expose the full ML-KEM parameter set.",
+        .argument = "Downstream schemas should be able to bind ML-KEM-512 and ML-KEM-1024 by name.",
+        .constraints = &[_]harness.ConstraintId{.meta_pdd},
+    };
+    try harness.requireProof(proof);
+
+    try std.testing.expect(composer.catalog.kems.findByName("ML-KEM-512") != null);
+    try std.testing.expect(composer.catalog.kems.findByName("ML-KEM-1024") != null);
+}
+
 test "C1 rejects insufficient entropy input" {
     const proof = harness.Proof{
         .statement = "Entropy underflow in KDF input must be rejected (C1).",
