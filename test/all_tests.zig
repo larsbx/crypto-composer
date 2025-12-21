@@ -512,6 +512,78 @@ test "C5 warns on data-dependent op with secret input" {
     try harness.expectConstraint(proof, std.testing.allocator, &g, &cat, .{}, .c5_timing_chain, .present);
 }
 
+test "C5 warns on secret-tainted path across ops" {
+    const proof = harness.Proof{
+        .statement = "Timing warnings should follow secret-tainted data through multiple ops (C5 warning).",
+        .argument = "A secret input flows through a constant-time KDF into a data-dependent KDF output.",
+        .constraints = &[_]harness.ConstraintId{.c5_timing_chain},
+    };
+
+    const cat = composer.catalog.DefaultCatalog;
+    const kdf = composer.catalog.kdfs.HKDF_SHA256;
+    const ctx = graph.DerivationContext{
+        .schema_id = "Test",
+        .protocol_id = "test",
+        .suite_id = "suite",
+        .transcript_hash = null,
+        .message_id = null,
+    };
+
+    const values = [_]graph.Value{
+        .{ .name = "seed", .entropy = .{ .uniform = 256 }, .timing = .constant_time, .secret = true, .source = .input },
+        .{ .name = "mid", .entropy = kdf.outputEntropy(.key, 128, .transcript_bound), .timing = .constant_time, .secret = false, .source = .{ .kdf_call = "kdf1" } },
+        .{ .name = "out", .entropy = kdf.outputEntropy(.key, 128, .transcript_bound), .timing = .data_dependent, .secret = false, .source = .{ .kdf_call = "kdf2" } },
+        .{ .name = "reject_boundary", .entropy = .{ .uniform = 0 }, .timing = .constant_time, .secret = false, .source = .structural },
+    };
+    const kdf_calls = [_]graph.KDFCall{
+        .{
+            .id = "kdf1",
+            .kdf_name = kdf.name,
+            .inputs = &[_]graph.ValueRef{.{ .direct = .{ .value = "seed" } }},
+            .in_required_ctx_kind = .none,
+            .label = "test/kdf1",
+            .ctx = ctx,
+            .scope = .session,
+            .use = .key,
+            .out_bits = 128,
+            .out_name = "mid",
+            .out_ctx_kind = .transcript_bound,
+        },
+        .{
+            .id = "kdf2",
+            .kdf_name = kdf.name,
+            .inputs = &[_]graph.ValueRef{.{ .direct = .{ .value = "mid" } }},
+            .in_required_ctx_kind = .none,
+            .label = "test/kdf2",
+            .ctx = ctx,
+            .scope = .session,
+            .use = .key,
+            .out_bits = 128,
+            .out_name = "out",
+            .out_ctx_kind = .transcript_bound,
+        },
+    };
+    const edges = [_]graph.FlowEdge{
+        .{ .from = .{ .direct = .{ .kdf_call = "kdf1" } }, .to = .{ .value = "mid" } },
+        .{ .from = .{ .direct = .{ .kdf_call = "kdf2" } }, .to = .{ .value = "out" } },
+    };
+    const outputs = [_]graph.Output{
+        .{ .name = "out", .value = "out", .kind = .value, .public = true },
+        .{ .name = "reject", .value = "reject_boundary", .kind = .reject_boundary, .public = false },
+    };
+
+    const g = graph.CompositionGraph{
+        .values = values[0..],
+        .kem_ops = &[_]graph.KemOp{},
+        .kdf_calls = kdf_calls[0..],
+        .aead_ops = &[_]graph.AeadOp{},
+        .edges = edges[0..],
+        .outputs = outputs[0..],
+    };
+
+    try harness.expectConstraint(proof, std.testing.allocator, &g, &cat, .{}, .c5_timing_chain, .present);
+}
+
 test "C6 rejects non-key-committing AEAD when required" {
     const proof = harness.Proof{
         .statement = "Key commitment is enforced when the product requires it (C6).",
