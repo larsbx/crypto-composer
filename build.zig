@@ -35,6 +35,11 @@ pub fn build(b: *std.Build) void {
         }),
     });
     tests.root_module.addImport("composer", composer_mod);
+    tests.root_module.addAnonymousImport("constraint_test_generator", .{
+        .root_source_file = b.path("constraint-test-generator.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
 
     const test_step = b.step("test", "Run unit tests");
     const run_tests = b.addRunArtifact(tests);
