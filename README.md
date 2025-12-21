@@ -1,10 +1,6 @@
 # crypto-composer v0.1 (spec-aligned skeleton)
 
-This repo is the *minimum viable* implementation scaffold for the composition-graph + constraint-checker design we just locked.
-
-Important limitations (honesty clause):
-- Zig is **not installed** in this environment, so I cannot actually run `zig test` here.
-- The code is written to be self-consistent and “compile-shaped,” but you should run `zig fmt` + `zig test` locally.
+This repo is the *minimum viable* implementation scaffold for the composition-graph + constraint-checker design.
 
 ## What’s implemented (v0.1)
 - Layer 0–4 core types (EntropyClass w/ entails + ctx compatibility)
