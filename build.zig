@@ -40,6 +40,13 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    tests.root_module.addAnonymousImport("tdd_ledger", .{
+        .root_source_file = b.path("tdd_ledger.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    tests.root_module.link_libc = true;
+    tests.root_module.linkSystemLibrary("sqlite3", .{});
 
     const test_step = b.step("test", "Run unit tests");
     const run_tests = b.addRunArtifact(tests);

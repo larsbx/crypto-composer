@@ -2,6 +2,7 @@ const std = @import("std");
 const composer = @import("composer");
 const harness = @import("harness.zig");
 const generator = @import("constraint_test_generator");
+const tdd_ledger = @import("tdd_ledger");
 const graph = composer.schemas.graph;
 const _constraint_tests = @import("constraint_tests.zig");
 
@@ -51,6 +52,49 @@ test "constraint test generator emits proof-bound stubs" {
     try std.testing.expect(
         std.mem.containsAtLeast(u8, out, 1, ".constraints = &[_]harness.ConstraintId{ .c1_entropy_flow }"),
     );
+}
+
+test "tdd ledger records red then green" {
+    const proof = harness.Proof{
+        .statement = "The TDD ledger must track red-to-green transitions for tests.",
+        .argument = "The ledger should reject green gates while any tests remain red.",
+        .constraints = &[_]harness.ConstraintId{.meta_pdd},
+    };
+    try harness.requireProof(proof);
+
+    const allocator = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const tmp_path = try tmp.dir.realpathAlloc(allocator, ".");
+    defer allocator.free(tmp_path);
+
+    const db_path = try std.fs.path.join(allocator, &[_][]const u8{ tmp_path, "tdd.sqlite" });
+    defer allocator.free(db_path);
+
+    var ledger = try tdd_ledger.Ledger.init(allocator, db_path);
+    defer ledger.deinit();
+
+    try ledger.record(.{
+        .test_name = "test.example",
+        .status = .red,
+        .note = "expected failure",
+        .command = "zig test",
+        .exit_code = 1,
+    });
+    try std.testing.expectError(error.RedTestsRemain, ledger.requireGreen());
+
+    try ledger.record(.{
+        .test_name = "test.example",
+        .status = .green,
+        .note = "fixed",
+        .command = "zig test",
+        .exit_code = 0,
+    });
+    try ledger.requireGreen();
+
+    try std.testing.expectEqual(@as(usize, 0), try ledger.countByStatus(.red));
+    try std.testing.expectEqual(@as(usize, 1), try ledger.countByStatus(.green));
 }
 
 test "catalog includes ML-KEM-512 and ML-KEM-1024" {
