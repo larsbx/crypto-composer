@@ -56,9 +56,11 @@ pub const NonceRequirement = union(enum) {
     none,
 };
 
+pub const KeyCommitment = enum { non_committing, key_committing };
+
 pub const AEADContract = struct {
     name: []const u8,
-    notion: notions.ConfNotion,
+    notion: notions.AeadNotion,
     level: g.SecurityLevel,
 
     key_bits: u16,
@@ -66,11 +68,15 @@ pub const AEADContract = struct {
     tag_bits: u16,
 
     nonce_requirement: NonceRequirement,
-    key_committing: bool,
+    key_commitment: KeyCommitment,
     timing: g.TimingClass,
 
     max_message_bytes: u64,
     max_messages_per_key: u64,
+
+    pub fn isKeyCommitting(self: @This()) bool {
+        return self.key_commitment == .key_committing;
+    }
 };
 
 pub const SigContract = struct {

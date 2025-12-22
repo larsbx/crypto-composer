@@ -10,7 +10,7 @@ pub fn checkKeyCommitment(gr: *const graph.CompositionGraph, cat: *const catalog
     // TODO(v0.2+): make this schema-specific and track which AEAD protects what.
     for (gr.aead_ops) |op| {
         const aead = cat.findAEAD(op.aead_name) orelse continue;
-        if (!aead.key_committing) {
+        if (!aead.isKeyCommitting()) {
             return .{ .aead = aead.name, .product_requires = true };
         }
     }

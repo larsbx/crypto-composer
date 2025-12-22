@@ -88,6 +88,17 @@ test "catalog includes ChaCha20-Poly1305 and XChaCha20-Poly1305" {
     try std.testing.expect(composer.catalog.aeads.findByName("XChaCha20-Poly1305") != null);
 }
 
+test "catalog includes AES-256-GCM-SIV" {
+    const proof = harness.Proof{
+        .statement = "The catalog should expose misuse-resistant AEAD variants.",
+        .argument = "AES-256-GCM-SIV should be available for bindings that need misuse resistance.",
+        .constraints = &[_]harness.ConstraintId{.meta_pdd},
+    };
+    try harness.requireProof(proof);
+
+    try std.testing.expect(composer.catalog.aeads.findByName("AES-256-GCM-SIV") != null);
+}
+
 test "C1 rejects insufficient entropy input" {
     const proof = harness.Proof{
         .statement = "Entropy underflow in KDF input must be rejected (C1).",
