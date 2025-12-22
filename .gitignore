@@ -2,3 +2,4 @@
 .zig-local/
 .zig-global/
 zig-out/
+.tdd_ledger.sqlite

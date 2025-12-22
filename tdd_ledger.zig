@@ -223,8 +223,8 @@ fn joinArgs(allocator: std.mem.Allocator, args: []const []const u8) ![]const u8 
     return out.toOwnedSlice(allocator);
 }
 
-fn printUsage(writer: anytype) !void {
-    try writer.writeAll(
+fn printUsage(file: std.fs.File) !void {
+    try file.writeAll(
         \\Usage:
         \\  zig run tdd_ledger.zig -- [--db path] <command> [args]
         \\
@@ -249,7 +249,8 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    const stderr = std.io.getStdErr().writer();
+    const stderr = std.fs.File.stderr();
+    const stdout = std.fs.File.stdout();
     const args = try std.process.argsAlloc(allocator);
     defer std.process.argsFree(allocator, args);
 
@@ -302,7 +303,9 @@ pub fn main() !void {
         defer ledger.deinit();
         const red = try ledger.countByStatus(.red);
         const green = try ledger.countByStatus(.green);
-        try std.io.getStdOut().writer().print("red={d} green={d}\n", .{ red, green });
+        const line = try std.fmt.allocPrint(allocator, "red={d} green={d}\n", .{ red, green });
+        defer allocator.free(line);
+        try stdout.writeAll(line);
         return;
     }
 
