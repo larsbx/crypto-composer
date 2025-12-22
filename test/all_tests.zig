@@ -76,6 +76,18 @@ test "catalog includes P-256" {
     try std.testing.expect(composer.catalog.kems.findByName("P-256") != null);
 }
 
+test "catalog includes ChaCha20-Poly1305 and XChaCha20-Poly1305" {
+    const proof = harness.Proof{
+        .statement = "The catalog should expose common AEAD choices for bindings.",
+        .argument = "Schemas should be able to bind ChaCha20-Poly1305 and XChaCha20-Poly1305 by name.",
+        .constraints = &[_]harness.ConstraintId{.meta_pdd},
+    };
+    try harness.requireProof(proof);
+
+    try std.testing.expect(composer.catalog.aeads.findByName("ChaCha20-Poly1305") != null);
+    try std.testing.expect(composer.catalog.aeads.findByName("XChaCha20-Poly1305") != null);
+}
+
 test "C1 rejects insufficient entropy input" {
     const proof = harness.Proof{
         .statement = "Entropy underflow in KDF input must be rejected (C1).",
