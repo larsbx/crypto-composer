@@ -3,7 +3,7 @@
 
 ZIG ?= zig
 
-.PHONY: all build test fmt fmt-check clean manifest verify-manifest ci
+.PHONY: all build test tdd-green fmt fmt-check clean manifest verify-manifest ci
 
 all: test
 
@@ -12,6 +12,9 @@ build:
 
 test:
 	$(ZIG) build test
+
+tdd-green:
+	$(ZIG) run tdd_ledger.zig -lsqlite3 -- require-green
 
 fmt:
 	$(ZIG) fmt .
@@ -31,4 +34,4 @@ manifest:
 verify-manifest:
 	python3 scripts/verify_manifest.py
 
-ci: fmt-check test verify-manifest
+ci: fmt-check test verify-manifest tdd-green
