@@ -29,6 +29,7 @@
 - Use the shared harness in `test/harness.zig` for proof validation and common assertions; import it as `const harness = @import("harness.zig");`.
 - For constraint changes, include both the failing graph and a passing counterpart that demonstrates the fix.
 - Record red/green transitions in `tdd_ledger.zig`; do not finish a change with any ledger entries still red.
+- Install the commit gate with `scripts/install-hooks.sh` to enforce red-first runs before committing.
 
 ## Commit & Pull Request Guidelines
 - Commit messages: imperative, present-tense subject lines (`Add KEM catalog entry`, `Fix nonce discipline check`) with concise detail in the body when needed.

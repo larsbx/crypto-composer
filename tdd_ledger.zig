@@ -94,11 +94,13 @@ pub const Ledger = struct {
     }
 
     pub fn record(self: *Ledger, rec: Record) !void {
+        if (rec.status == .green) try self.requireRedBeforeGreen(rec.test_name);
         try self.execUpsert(rec);
         _ = try self.execEvent(rec);
     }
 
     pub fn recordWithResult(self: *Ledger, allocator: std.mem.Allocator, rec: Record) !RecordResult {
+        if (rec.status == .green) try self.requireRedBeforeGreen(rec.test_name);
         try self.execUpsert(rec);
         const event_id = try self.execEvent(rec);
         const row = try self.fetchLedgerRow(allocator, rec.test_name);
@@ -115,6 +117,10 @@ pub const Ledger = struct {
 
     pub fn requireGreen(self: *Ledger) !void {
         if (try self.hasRed()) return error.RedTestsRemain;
+    }
+
+    pub fn requireRedBeforeGreen(self: *Ledger, test_name: []const u8) !void {
+        if (!try self.hasRedEvent(test_name)) return error.MissingRed;
     }
 
     pub fn countByStatus(self: *Ledger, status: Status) !usize {
@@ -243,6 +249,36 @@ pub const Ledger = struct {
         if (rc == c.SQLITE_DONE) return false;
         return error.SqliteError;
     }
+
+    fn hasRedEvent(self: *Ledger, test_name: []const u8) !bool {
+        const sql =
+            \\SELECT 1 FROM events WHERE status = 'red' AND test_name = ? LIMIT 1
+        ;
+        const stmt = try self.prepare(sql);
+        defer _ = c.sqlite3_finalize(stmt);
+
+        try bindText(stmt, 1, test_name);
+        const rc = c.sqlite3_step(stmt);
+        if (rc == c.SQLITE_ROW) return true;
+        if (rc == c.SQLITE_DONE) return false;
+        return error.SqliteError;
+    }
+
+    fn hasRedSince(self: *Ledger, since_epoch: i64) !bool {
+        const sql =
+            \\SELECT 1 FROM events WHERE status = 'red'
+            \\  AND created_at >= datetime(?, 'unixepoch')
+            \\LIMIT 1
+        ;
+        const stmt = try self.prepare(sql);
+        defer _ = c.sqlite3_finalize(stmt);
+
+        try bindInt64(stmt, 1, since_epoch);
+        const rc = c.sqlite3_step(stmt);
+        if (rc == c.SQLITE_ROW) return true;
+        if (rc == c.SQLITE_DONE) return false;
+        return error.SqliteError;
+    }
 };
 
 fn statusText(status: Status) []const u8 {
@@ -294,6 +330,11 @@ fn bindOptionalInt(stmt: *c.sqlite3_stmt, idx: c_int, value: ?i32) !void {
         return;
     }
     const rc = c.sqlite3_bind_null(stmt, idx);
+    if (rc != c.SQLITE_OK) return error.SqliteError;
+}
+
+fn bindInt64(stmt: *c.sqlite3_stmt, idx: c_int, value: i64) !void {
+    const rc = c.sqlite3_bind_int64(stmt, idx, value);
     if (rc != c.SQLITE_OK) return error.SqliteError;
 }
 
@@ -408,6 +449,7 @@ fn printUsage(file: std.fs.File) !void {
         \\  red <test> [--note text] --run -- <cmd...>
         \\  green <test> [--note text] --run -- <cmd...>
         \\  require-green
+        \\  require-red-since <unix_epoch>
         \\  status
         \\
         \\Environment:
@@ -495,6 +537,29 @@ pub fn main() !void {
             defer allocator.free(line);
             try stderr.writeAll(line);
             return error.RedTestsRemain;
+        }
+        return;
+    }
+
+    if (std.mem.eql(u8, cmd, "require-red-since")) {
+        if (i >= args.len) return error.InvalidArgs;
+        const epoch_arg = args[i];
+        i += 1;
+        const since_epoch = std.fmt.parseInt(i64, epoch_arg, 10) catch return error.InvalidArgs;
+        if (since_epoch < 0) return error.InvalidArgs;
+
+        var ledger = try Ledger.init(allocator, db_path);
+        defer ledger.deinit();
+        const has_red = try ledger.hasRedSince(since_epoch);
+        if (!has_red) {
+            const line = try std.fmt.allocPrint(
+                allocator,
+                "no red tests recorded since {d}\n",
+                .{since_epoch},
+            );
+            defer allocator.free(line);
+            try stderr.writeAll(line);
+            return error.MissingRedSince;
         }
         return;
     }

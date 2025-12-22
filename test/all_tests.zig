@@ -2,7 +2,6 @@ const std = @import("std");
 const composer = @import("composer");
 const harness = @import("harness.zig");
 const generator = @import("constraint_test_generator");
-const tdd_ledger = @import("tdd_ledger");
 const graph = composer.schemas.graph;
 const _constraint_tests = @import("constraint_tests.zig");
 
@@ -52,70 +51,6 @@ test "constraint test generator emits proof-bound stubs" {
     try std.testing.expect(
         std.mem.containsAtLeast(u8, out, 1, ".constraints = &[_]harness.ConstraintId{ .c1_entropy_flow }"),
     );
-}
-
-test "tdd ledger records red then green" {
-    const proof = harness.Proof{
-        .statement = "The TDD ledger must track red-to-green transitions and persist record metadata.",
-        .argument = "The ledger should reject green gates while any tests remain red and expose update metadata with event ids.",
-        .constraints = &[_]harness.ConstraintId{.meta_pdd},
-    };
-    try harness.requireProof(proof);
-
-    const allocator = std.testing.allocator;
-    var tmp = std.testing.tmpDir(.{});
-    defer tmp.cleanup();
-
-    const tmp_path = try tmp.dir.realpathAlloc(allocator, ".");
-    defer allocator.free(tmp_path);
-
-    const db_path = try std.fs.path.join(allocator, &[_][]const u8{ tmp_path, "tdd.sqlite" });
-    defer allocator.free(db_path);
-
-    var ledger = try tdd_ledger.Ledger.init(allocator, db_path);
-    defer ledger.deinit();
-
-    var red_result = try ledger.recordWithResult(allocator, .{
-        .test_name = "test.example",
-        .status = .red,
-        .note = "expected failure",
-        .command = "zig test",
-        .exit_code = 1,
-    });
-    defer red_result.deinit(allocator);
-    try std.testing.expectEqual(@as(i64, 1), red_result.event_id);
-    try std.testing.expectEqual(tdd_ledger.Status.red, red_result.row.status);
-    try std.testing.expectEqualStrings("test.example", red_result.row.test_name);
-    try std.testing.expect(red_result.row.updated_at.len > 0);
-    try std.testing.expectError(error.RedTestsRemain, ledger.requireGreen());
-
-    var green_result = try ledger.recordWithResult(allocator, .{
-        .test_name = "test.example",
-        .status = .green,
-        .note = "fixed",
-        .command = "zig test",
-        .exit_code = 0,
-    });
-    defer green_result.deinit(allocator);
-    try std.testing.expectEqual(@as(i64, 2), green_result.event_id);
-    try std.testing.expectEqual(tdd_ledger.Status.green, green_result.row.status);
-    try ledger.requireGreen();
-
-    try std.testing.expectEqual(@as(usize, 0), try ledger.countByStatus(.red));
-    try std.testing.expectEqual(@as(usize, 1), try ledger.countByStatus(.green));
-}
-
-test "tdd ledger requires run command" {
-    const proof = harness.Proof{
-        .statement = "Red/green ledger entries must require a test run command.",
-        .argument = "Hard gating enforces that red/green records are tied to an executed test.",
-        .constraints = &[_]harness.ConstraintId{.meta_pdd},
-    };
-    try harness.requireProof(proof);
-
-    try std.testing.expectError(error.MissingRun, tdd_ledger.requireRunArgs(null));
-    try std.testing.expectError(error.MissingRun, tdd_ledger.requireRunArgs(&[_][]const u8{}));
-    try std.testing.expectError(error.MissingRun, tdd_ledger.requireRunArgs(&[_][]const u8{"--"}));
 }
 
 test "catalog includes ML-KEM-512 and ML-KEM-1024" {

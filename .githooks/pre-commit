@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+db_path="${TDD_LEDGER_DB:-.tdd_ledger.sqlite}"
+if [[ ! -f "$db_path" ]]; then
+  echo "tdd ledger db missing: $db_path" >&2
+  echo "record a red test with: zig run tdd_ledger.zig -lsqlite3 -- red <test> --run -- <cmd...>" >&2
+  exit 1
+fi
+
+last_commit_epoch="$(git log -1 --format=%ct 2>/dev/null || true)"
+if [[ -z "$last_commit_epoch" ]]; then
+  last_commit_epoch="0"
+fi
+
+zig run tdd_ledger.zig -lsqlite3 -- --db "$db_path" require-red-since "$last_commit_epoch" >/dev/null
+zig run tdd_ledger.zig -lsqlite3 -- --db "$db_path" require-green >/dev/null
