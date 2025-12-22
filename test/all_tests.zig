@@ -65,6 +65,17 @@ test "catalog includes ML-KEM-512 and ML-KEM-1024" {
     try std.testing.expect(composer.catalog.kems.findByName("ML-KEM-1024") != null);
 }
 
+test "catalog includes P-256" {
+    const proof = harness.Proof{
+        .statement = "The catalog should expose P-256 for classical KEM bindings.",
+        .argument = "Hybrid and DH-based schemas should be able to bind P-256 by name.",
+        .constraints = &[_]harness.ConstraintId{.meta_pdd},
+    };
+    try harness.requireProof(proof);
+
+    try std.testing.expect(composer.catalog.kems.findByName("P-256") != null);
+}
+
 test "C1 rejects insufficient entropy input" {
     const proof = harness.Proof{
         .statement = "Entropy underflow in KDF input must be rejected (C1).",

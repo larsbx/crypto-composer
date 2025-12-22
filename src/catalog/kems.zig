@@ -18,6 +18,21 @@ pub const X25519 = c.KEMContract{
     .timing = .constant_time,
 };
 
+pub const P_256 = c.KEMContract{
+    .name = "P-256",
+    .notion = .ind_cca2, // TODO(v0.2+): debate notion for DH KEX mapping.
+    .assumption = .{ .name = "DDH(P-256)", .class = .discrete_log, .params = "P-256" },
+    .level = .{ .bits = 128 },
+    .pk_bytes = 65,
+    .sk_bytes = 32,
+    .ct_bytes = 65,
+    .ss_bytes = 32,
+    .ss_entropy_success = .{ .conditioned = .{ .base = &.{ .uniform = 256 }, .ctx_kind = .transcript_bound } },
+    .ss_entropy_failure = .{ .conditioned = .{ .base = &.{ .min_entropy = 0 }, .ctx_kind = .ciphertext_bound } },
+    .failure = .implicit_reject,
+    .timing = .constant_time,
+};
+
 pub const ML_KEM_768 = c.KEMContract{
     .name = "ML-KEM-768",
     .notion = .ind_cca2,
@@ -67,6 +82,7 @@ pub const ML_KEM_1024 = c.KEMContract{
 
 pub fn findByName(name: []const u8) ?*const c.KEMContract {
     if (std.mem.eql(u8, name, X25519.name)) return &X25519;
+    if (std.mem.eql(u8, name, P_256.name)) return &P_256;
     if (std.mem.eql(u8, name, ML_KEM_512.name)) return &ML_KEM_512;
     if (std.mem.eql(u8, name, ML_KEM_768.name)) return &ML_KEM_768;
     if (std.mem.eql(u8, name, ML_KEM_1024.name)) return &ML_KEM_1024;
