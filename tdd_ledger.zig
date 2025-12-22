@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const c = @cImport({
     @cInclude("sqlite3.h");
 });
@@ -11,6 +12,33 @@ pub const Record = struct {
     note: ?[]const u8 = null,
     command: ?[]const u8 = null,
     exit_code: ?i32 = null,
+};
+
+pub const LedgerRow = struct {
+    test_name: []const u8,
+    status: Status,
+    note: ?[]const u8,
+    last_command: ?[]const u8,
+    last_exit_code: ?i32,
+    updated_at: []const u8,
+
+    pub fn deinit(self: *LedgerRow, allocator: std.mem.Allocator) void {
+        allocator.free(self.test_name);
+        allocator.free(self.updated_at);
+        if (self.note) |value| allocator.free(value);
+        if (self.last_command) |value| allocator.free(value);
+        self.* = undefined;
+    }
+};
+
+pub const RecordResult = struct {
+    event_id: i64,
+    row: LedgerRow,
+
+    pub fn deinit(self: *RecordResult, allocator: std.mem.Allocator) void {
+        self.row.deinit(allocator);
+        self.* = undefined;
+    }
 };
 
 pub const Ledger = struct {
@@ -67,7 +95,14 @@ pub const Ledger = struct {
 
     pub fn record(self: *Ledger, rec: Record) !void {
         try self.execUpsert(rec);
-        try self.execEvent(rec);
+        _ = try self.execEvent(rec);
+    }
+
+    pub fn recordWithResult(self: *Ledger, allocator: std.mem.Allocator, rec: Record) !RecordResult {
+        try self.execUpsert(rec);
+        const event_id = try self.execEvent(rec);
+        const row = try self.fetchLedgerRow(allocator, rec.test_name);
+        return .{ .event_id = event_id, .row = row };
     }
 
     pub fn markRed(self: *Ledger, test_name: []const u8, note: ?[]const u8) !void {
@@ -138,7 +173,7 @@ pub const Ledger = struct {
         try stepDone(stmt);
     }
 
-    fn execEvent(self: *Ledger, rec: Record) !void {
+    fn execEvent(self: *Ledger, rec: Record) !i64 {
         const sql =
             \\INSERT INTO events (test_name, status, note, command, exit_code)
             \\VALUES (?, ?, ?, ?, ?)
@@ -152,6 +187,48 @@ pub const Ledger = struct {
         try bindOptionalText(stmt, 4, rec.command);
         try bindOptionalInt(stmt, 5, rec.exit_code);
         try stepDone(stmt);
+        return c.sqlite3_last_insert_rowid(self.db);
+    }
+
+    fn fetchLedgerRow(self: *Ledger, allocator: std.mem.Allocator, test_name: []const u8) !LedgerRow {
+        const sql =
+            \\SELECT test_name, status, note, last_command, last_exit_code, updated_at
+            \\FROM ledger
+            \\WHERE test_name = ?
+        ;
+        const stmt = try self.prepare(sql);
+        defer _ = c.sqlite3_finalize(stmt);
+
+        try bindText(stmt, 1, test_name);
+        const rc = c.sqlite3_step(stmt);
+        if (rc != c.SQLITE_ROW) return error.SqliteError;
+
+        const name = try columnTextOwned(allocator, stmt, 0);
+        errdefer allocator.free(name);
+
+        const status_text = try columnTextOwned(allocator, stmt, 1);
+        defer allocator.free(status_text);
+        const status = try statusFromText(status_text);
+
+        const note = try columnOptionalTextOwned(allocator, stmt, 2);
+        errdefer if (note) |value| allocator.free(value);
+
+        const last_command = try columnOptionalTextOwned(allocator, stmt, 3);
+        errdefer if (last_command) |value| allocator.free(value);
+
+        const last_exit_code = columnOptionalInt(stmt, 4);
+
+        const updated_at = try columnTextOwned(allocator, stmt, 5);
+        errdefer allocator.free(updated_at);
+
+        return .{
+            .test_name = name,
+            .status = status,
+            .note = note,
+            .last_command = last_command,
+            .last_exit_code = last_exit_code,
+            .updated_at = updated_at,
+        };
     }
 
     fn hasRed(self: *Ledger) !bool {
@@ -173,6 +250,30 @@ fn statusText(status: Status) []const u8 {
         .red => "red",
         .green => "green",
     };
+}
+
+fn statusFromText(text: []const u8) !Status {
+    if (std.mem.eql(u8, text, "red")) return .red;
+    if (std.mem.eql(u8, text, "green")) return .green;
+    return error.InvalidStatus;
+}
+
+fn columnTextOwned(allocator: std.mem.Allocator, stmt: *c.sqlite3_stmt, idx: c_int) ![]const u8 {
+    const text_ptr = c.sqlite3_column_text(stmt, idx);
+    if (text_ptr == null) return error.SqliteError;
+    const len = c.sqlite3_column_bytes(stmt, idx);
+    const slice = @as([*]const u8, @ptrCast(text_ptr))[0..@intCast(len)];
+    return allocator.dupe(u8, slice);
+}
+
+fn columnOptionalTextOwned(allocator: std.mem.Allocator, stmt: *c.sqlite3_stmt, idx: c_int) !?[]const u8 {
+    if (c.sqlite3_column_type(stmt, idx) == c.SQLITE_NULL) return null;
+    return try columnTextOwned(allocator, stmt, idx);
+}
+
+fn columnOptionalInt(stmt: *c.sqlite3_stmt, idx: c_int) ?i32 {
+    if (c.sqlite3_column_type(stmt, idx) == c.SQLITE_NULL) return null;
+    return c.sqlite3_column_int(stmt, idx);
 }
 
 fn bindText(stmt: *c.sqlite3_stmt, idx: c_int, text: []const u8) !void {
@@ -223,6 +324,80 @@ fn joinArgs(allocator: std.mem.Allocator, args: []const []const u8) ![]const u8 
     return out.toOwnedSlice(allocator);
 }
 
+pub fn requireRunArgs(run_args: ?[]const []const u8) ![]const []const u8 {
+    const raw = run_args orelse return error.MissingRun;
+    const args = if (raw.len > 0 and std.mem.eql(u8, raw[0], "--")) raw[1..] else raw;
+    if (args.len == 0) return error.MissingRun;
+    return args;
+}
+
+fn sleepMillis(ms: u64) void {
+    switch (builtin.os.tag) {
+        .windows => _ = std.os.windows.kernel32.SleepEx(@intCast(ms), std.os.windows.FALSE),
+        else => std.posix.nanosleep(ms / 1000, (ms % 1000) * std.time.ns_per_ms),
+    }
+}
+
+fn renderBar(buf: []u8, pos: usize) []const u8 {
+    var i: usize = 0;
+    while (i < buf.len) : (i += 1) {
+        buf[i] = if (i == pos) '#' else '-';
+    }
+    return buf;
+}
+
+fn showRedProgress(file: std.fs.File, red_count: usize) !void {
+    const bar_width = 16;
+    var bar_buf: [bar_width]u8 = undefined;
+    const is_tty = file.isTty();
+    const frames: usize = if (is_tty) bar_width * 2 else 1;
+
+    var frame: usize = 0;
+    while (frame < frames) : (frame += 1) {
+        const pos = frame % bar_width;
+        const bar = renderBar(bar_buf[0..], pos);
+        var line_buf: [128]u8 = undefined;
+        const line = if (is_tty)
+            try std.fmt.bufPrint(
+                &line_buf,
+                "\r\x1b[31m[{s}]\x1b[0m red tests={d}",
+                .{ bar, red_count },
+            )
+        else
+            try std.fmt.bufPrint(&line_buf, "[{s}] red tests={d}\n", .{ bar, red_count });
+        try file.writeAll(line);
+        if (is_tty) sleepMillis(40);
+    }
+    if (is_tty) try file.writeAll("\n");
+}
+
+fn writeRecordUpdate(file: std.fs.File, allocator: std.mem.Allocator, result: *const RecordResult) !void {
+    var exit_buf: [32]u8 = undefined;
+    const exit_text: []const u8 = if (result.row.last_exit_code) |code|
+        try std.fmt.bufPrint(&exit_buf, "{d}", .{code})
+    else
+        "-";
+    const note_text = result.row.note orelse "-";
+    const command_text = result.row.last_command orelse "-";
+    const status_text = statusText(result.row.status);
+
+    const header = try std.fmt.allocPrint(
+        allocator,
+        "record updated: test #{d} {s} {s}\n",
+        .{ result.event_id, status_text, result.row.test_name },
+    );
+    defer allocator.free(header);
+    try file.writeAll(header);
+
+    const details = try std.fmt.allocPrint(
+        allocator,
+        "updated_at={s} note={s} command={s} exit_code={s}\n",
+        .{ result.row.updated_at, note_text, command_text, exit_text },
+    );
+    defer allocator.free(details);
+    try file.writeAll(details);
+}
+
 fn printUsage(file: std.fs.File) !void {
     try file.writeAll(
         \\Usage:
@@ -230,8 +405,8 @@ fn printUsage(file: std.fs.File) !void {
         \\
         \\Commands:
         \\  init
-        \\  red <test> [--note text] [--run -- <cmd...>]
-        \\  green <test> [--note text] [--run -- <cmd...>]
+        \\  red <test> [--note text] --run -- <cmd...>
+        \\  green <test> [--note text] --run -- <cmd...>
         \\  require-green
         \\  status
         \\
@@ -239,6 +414,7 @@ fn printUsage(file: std.fs.File) !void {
         \\  TDD_LEDGER_DB defaults the database path if --db is not provided.
         \\
         \\Notes:
+        \\  --run is required for red/green to enforce test execution.
         \\  This tool links against sqlite3; compile with -lsqlite3.
         \\
     );
@@ -312,13 +488,14 @@ pub fn main() !void {
     if (std.mem.eql(u8, cmd, "require-green")) {
         var ledger = try Ledger.init(allocator, db_path);
         defer ledger.deinit();
-        ledger.requireGreen() catch |err| {
-            if (err == error.RedTestsRemain) {
-                try stderr.writeAll("red tests remain\n");
-                return error.RedTestsRemain;
-            }
-            return err;
-        };
+        const red = try ledger.countByStatus(.red);
+        if (red > 0) {
+            try showRedProgress(stderr, red);
+            const line = try std.fmt.allocPrint(allocator, "red tests remain: {d}\n", .{red});
+            defer allocator.free(line);
+            try stderr.writeAll(line);
+            return error.RedTestsRemain;
+        }
         return;
     }
 
@@ -348,33 +525,39 @@ pub fn main() !void {
 
         var command: ?[]const u8 = null;
         var exit_code: ?i32 = null;
-        if (run_args) |cmd_args_raw| {
-            const cmd_args = if (cmd_args_raw.len > 0 and std.mem.eql(u8, cmd_args_raw[0], "--"))
-                cmd_args_raw[1..]
-            else
-                cmd_args_raw;
-            if (cmd_args.len == 0) return error.InvalidArgs;
-            command = try joinArgs(allocator, cmd_args);
-            defer allocator.free(command.?);
-            const code = try runCommand(allocator, cmd_args);
-            if (std.mem.eql(u8, cmd, "red")) {
-                if (code == 0) return error.ExpectedFailure;
-            } else {
-                if (code != 0) return error.ExpectedSuccess;
+        const cmd_args = requireRunArgs(run_args) catch |err| {
+            if (err == error.MissingRun) {
+                try stderr.writeAll("missing --run command\n");
+                return err;
             }
-            exit_code = code;
+            return err;
+        };
+        command = try joinArgs(allocator, cmd_args);
+        defer allocator.free(command.?);
+        const code = try runCommand(allocator, cmd_args);
+        if (std.mem.eql(u8, cmd, "red")) {
+            if (code == 0) return error.ExpectedFailure;
+        } else {
+            if (code != 0) return error.ExpectedSuccess;
         }
+        exit_code = code;
 
         var ledger = try Ledger.init(allocator, db_path);
         defer ledger.deinit();
         const status: Status = if (std.mem.eql(u8, cmd, "red")) .red else .green;
-        try ledger.record(.{
+        var result = try ledger.recordWithResult(allocator, .{
             .test_name = test_name,
             .status = status,
             .note = note,
             .command = command,
             .exit_code = exit_code,
         });
+        defer result.deinit(allocator);
+        if (status == .red) {
+            const red = try ledger.countByStatus(.red);
+            try showRedProgress(stdout, red);
+        }
+        try writeRecordUpdate(stdout, allocator, &result);
         return;
     }
 
