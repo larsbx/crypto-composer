@@ -15,7 +15,8 @@ Composition graphs for cryptographic primitives, with constraints C1-C6
 checked at build time.
 
 **Language / toolchain:** Zig 0.13
-**CI:** GitHub Actions (`.github/workflows/ci.yml`) on ubuntu, macos and windows; runs `make ci`
+**CI:** GitHub Actions (`.github/workflows/ci.yml`) on ubuntu, macos and windows; runs
+  `make ci`
 
 This document says *how* to steward a PR here. It does not widen what you are
 allowed to do. The standing prohibitions in your harness still hold — never

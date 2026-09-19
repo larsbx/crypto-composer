@@ -10,7 +10,8 @@ Composition graphs for cryptographic primitives, with constraints C1-C6
 checked at build time.
 
 **Language / toolchain:** Zig 0.13
-**CI:** GitHub Actions (`.github/workflows/ci.yml`) on ubuntu, macos and windows; runs `make ci`
+**CI:** GitHub Actions (`.github/workflows/ci.yml`) on ubuntu, macos and windows; runs
+  `make ci`
 
 Read these first — they are normative, not background:
 
