@@ -653,7 +653,7 @@ The solver may maintain incremental transitive closure after activation.
 Required monotonicity:
 
 ```text
-Evsubseteq Ev'
+Ev ⊆ Ev'
 ⇒
 NF1(D,Ev)⊆ NF1(D,Ev').
 ```
@@ -879,7 +879,7 @@ Sat(S,D)⇒ Sat(S',D).
 **T3 — weakening in spec strength.** For an explicitly defined spec preorder:
 
 ```text
-D_1sqsubseteq D_2
+D_1 ⊑ D_2
 ⇒
 Sat(S,D_2)⊢ Sat(S,D_1).
 ```
@@ -969,7 +969,7 @@ when top guards are always active.
 **P1-Monotone.**
 
 ```text
-Evsubseteq Ev'
+Ev ⊆ Ev'
 ⇒ NF1(D,Ev)⊆ NF1(D,Ev').
 ```
 
@@ -1000,7 +1000,7 @@ The required categorical structure is intentionally modest.
 - stronger specifications entail weaker obligations:
 
 ```text
-D_1sqsubseteq D_2
+D_1 ⊑ D_2
 ⇒
 Sat(S,D_2)⊢ Sat(S,D_1).
 ```
