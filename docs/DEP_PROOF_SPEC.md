@@ -152,45 +152,45 @@ This separation is required to prevent dependency declarations, semantic claims,
 
 For a required atom `d = atom(a,b,req,c)`:
 
-[
-Sat(S,d) := (llbracket crbracket_S land def_S(a)) Rightarrow def_S(b).
-]
+```text
+Sat(S,d) := (⟦ c⟧_S ∧ def_S(a)) ⇒ def_S(b).
+```
 
 Under the minimal kernel policy, optional and trivial atoms do not contribute mandatory satisfaction:
 
-[
-Sat(S,atom(_,_,opt,_)) := 	op,
+```text
+Sat(S,atom(_,_,opt,_)) := ⊤,
 qquad
-Sat(S,atom(_,_,triv,_)) := 	op.
-]
+Sat(S,atom(_,_,triv,_)) := ⊤.
+```
 
 Compound semantics:
 
-[
-Sat(S,D_1 land D_2) := Sat(S,D_1)land Sat(S,D_2),
-]
+```text
+Sat(S,D_1 ∧ D_2) := Sat(S,D_1)∧ Sat(S,D_2),
+```
 
-[
-Sat(S,D_1 otimes D_2) := Sat(S,D_1)	imes Sat(S,D_2),
-]
+```text
+Sat(S,D_1 ⊗ D_2) := Sat(S,D_1)× Sat(S,D_2),
+```
 
-[
-Sat(S,D_1 lor D_2) := Sat(S,D_1)lor Sat(S,D_2),
-]
+```text
+Sat(S,D_1 ∨ D_2) := Sat(S,D_1)∨ Sat(S,D_2),
+```
 
-[
-Sat(S,orall x{:}	au.D(x)) := Pi(x{:}	au).Sat(S,D(x)).
-]
+```text
+Sat(S,∀ x{:}τ.D(x)) := Π(x{:}τ).Sat(S,D(x)).
+```
 
 ### 5.1 Sequential composition
 
 Sequential composition is evidence-sensitive:
 
-[
+```text
 Sat(S,D_1;D_2)
 :=
-Sigma(pi_1:Sat(S,D_1)).Sat(S,D_2).
-]
+Σ(pi_1:Sat(S,D_1)).Sat(S,D_2).
+```
 
 Operationally, an implementation may use state threading `S → S'`; however, the logical presentation must preserve the same evidence dependency.
 
@@ -217,12 +217,12 @@ Closure is a graph-level concept.
 
 For the selected edge relation `Edge_D`:
 
-[
+```text
 SatStar(S,Edge_D)
 :=
-orall a,b. Reach(Edge_D)(a,b)
-Rightarrow (def_S(a)Rightarrow def_S(b)).
-]
+∀ a,b. Reach(Edge_D)(a,b)
+⇒ (def_S(a)⇒ def_S(b)).
+```
 
 `Sat(S,D*)` is defined through this reachability semantics, not through an unspecified logical fixed-point modality.
 
@@ -271,9 +271,9 @@ Foot(D) : Finset Elem
 
 For `D1 ⊗ D2` require:
 
-[
-Foot(D_1)cap Foot(D_2)=arnothing.
-]
+```text
+Foot(D_1)∩ Foot(D_2)=∅.
+```
 
 Any later relaxation must make ownership, sharing, or interference explicit.
 
@@ -312,19 +312,19 @@ Union over `or` is deliberately conservative. Binder-residual mode includes only
 
 Define:
 
-[
-Edge0_D(a,b) := (a,b)in ReqEdges0(D).
-]
+```text
+Edge0_D(a,b) := (a,b) ∈ ReqEdges0(D).
+```
 
 ### 8.2 Canonical closure
 
 On `Nodes(D)`, compute reflexive-transitive closure and canonicalize:
 
-[
+```text
 NF0(D)
 :=
 canon(TC_on_nodes(ReqEdges0(D),Nodes(D))).
-]
+```
 
 `canon` uses a fixed total order, deterministic serialization, and deduplication.
 
@@ -334,17 +334,17 @@ An implementation may use Floyd–Warshall, bitset transitive closure, repeated 
 
 For a normalized edge:
 
-[
-VCedge(S,(a,b)) := def_S(a)Rightarrow def_S(b).
-]
+```text
+VCedge(S,(a,b)) := def_S(a)⇒ def_S(b).
+```
 
 Then:
 
-[
+```text
 VCList0(S,D)
 :=
 map(VCedge(S),toSortedList(NF0(D))).
-]
+```
 
 The list is canonical, duplicate-free, stable, and content-addressable.
 
@@ -352,15 +352,15 @@ The list is canonical, duplicate-free, stable, and content-addressable.
 
 The full normalization result is conceptually:
 
-[
-VNF(D)=(mathcal E,mathcal C,mathcal Q)
-]
+```text
+VNF(D)=(𝓔,𝓒,𝓠)
+```
 
 where:
 
-- (mathcal E) is the canonical P0/P1 closed edge relation,
-- (mathcal C) records guard policy and condition obligations,
-- (mathcal Q) preserves higher structure as residual proof obligations.
+- 𝓔 is the canonical P0/P1 closed edge relation,
+- 𝓒 records guard policy and condition obligations,
+- 𝓠 preserves higher structure as residual proof obligations.
 
 Normalization must never pretend to decide disjunctions, arbitrary guards, cryptographic claims, or unbounded quantification.
 
@@ -398,11 +398,11 @@ The `seq` constructor is the operational reflection of the Σ semantics.
 
 Define:
 
-[
+```text
 VCGen(S,D)
 :=
 (VCList0(S,D),ResidualPlanNF(S,D)).
-]
+```
 
 Compilation is structural and deterministic.
 
@@ -414,10 +414,10 @@ For `atom(a,b,w,c)`:
 - `w=req` and `c=⊤`: discharged from the P0 kernel;
 - `w=req` and `c≠⊤`: emit
 
-[
+```text
 phi :=
-(llbracket crbracket_Sland def_S(a))Rightarrow def_S(b)
-]
+(⟦ c⟧_S ∧ def_S(a))⇒ def_S(b)
+```
 
 as:
 
@@ -526,13 +526,13 @@ The binder is either:
 
 `RunPlan` is pure and deterministic. It compiles; it does not invoke tools or guess proof strategies.
 
-[
+```text
 RunPlan(S,plan)
-Rightarrow
+⇒
 Solved(pi)
 ;	ext{or};
 Pending(G,Open).
-]
+```
 
 Constructor behavior:
 
@@ -628,19 +628,19 @@ Active(S,c) : Prop
 
 and, for an evidence set `Ev`:
 
-[
+```text
 Edge1(S,D,Ev)(a,b)
-]
+```
 
 iff a required atom `atom(a,b,req,c)` occurs in `D` and evidence in `Ev` proves `Active(S,c)`.
 
 Then compute:
 
-[
+```text
 NF1(D,Ev)
 =
 canon(TC_on_nodes(Edge1(D,Ev),Nodes(D))).
-]
+```
 
 A guarded atom may therefore compile as:
 
@@ -652,17 +652,17 @@ The solver may maintain incremental transitive closure after activation.
 
 Required monotonicity:
 
-[
+```text
 Evsubseteq Ev'
-Rightarrow
-NF1(D,Ev)subseteq NF1(D,Ev').
-]
+⇒
+NF1(D,Ev)⊆ NF1(D,Ev').
+```
 
 When `Active(S,⊤)` always holds:
 
-[
-SatStar1(S,D)Rightarrow SatStar0(S,D).
-]
+```text
+SatStar1(S,D)⇒ SatStar0(S,D).
+```
 
 P1 is therefore an evidence-driven conservative refinement of P0.
 
@@ -686,9 +686,9 @@ The witness reference must be pinned and content-addressed where practical.
 
 The default bound-composition rule is additive.
 
-[
-epsilon_{total}le sum_i epsilon_i.
-]
+```text
+ε_total ≤ Σ_i ε_i.
+```
 
 Using `max` or stronger composition requires explicit probabilistic-independence evidence.
 
@@ -748,27 +748,27 @@ root
 
 A VC identifier is content-addressed:
 
-[
+```text
 VCID
 =
 H(
 canonical(AtomVC)
-parallel canonical(Origin)
-parallel canonical(relevant_env_slice)
+∥ canonical(Origin)
+∥ canonical(relevant_env_slice)
 ).
-]
+```
 
 For graph nodes:
 
-[
+```text
 id
 =
 H(
 canonical(path)
-parallel canonical(prop)
-parallel canonical(ctx)
+∥ canonical(prop)
+∥ canonical(ctx)
 ).
-]
+```
 
 Cache keys additionally include:
 
@@ -804,9 +804,9 @@ The package must never silently promote one level into another.
 
 A whole-spec certificate is:
 
-[
+```text
 Cert(S,D):=Proof(Sat(S,D)).
-]
+```
 
 Implementations may also retain per-atom/per-VC evidence products and assemble them structurally.
 
@@ -872,17 +872,17 @@ The implementation and mechanization effort should target the following statemen
 
 **T2 — scheme-upgrade monotonicity.** Under a valid scheme-state preorder and stable guards:
 
-[
-Sat(S,D)Rightarrow Sat(S',D).
-]
+```text
+Sat(S,D)⇒ Sat(S',D).
+```
 
 **T3 — weakening in spec strength.** For an explicitly defined spec preorder:
 
-[
+```text
 D_1sqsubseteq D_2
-Rightarrow
-Sat(S,D_2)dash Sat(S,D_1).
-]
+⇒
+Sat(S,D_2)⊢ Sat(S,D_1).
+```
 
 ### Sequencing
 
@@ -890,11 +890,11 @@ Sat(S,D_2)dash Sat(S,D_1).
 
 **T5 — non-collapse.** In general there is no context-free construction:
 
-[
-Sat(S,D_1)land Sat(S,D_2)
+```text
+Sat(S,D_1)∧ Sat(S,D_2)
 	o
 Sat(S,D_1;D_2).
-]
+```
 
 **T6 — associativity up to dependent-pair isomorphism.**
 
@@ -924,29 +924,29 @@ Sat(S,D_1;D_2).
 
 **NF-Sound.**
 
-[
+```text
 SatStar0(S,D)
-Rightarrow
-igwedge VCList0(S,D).
-]
+⇒
+⋀ VCList0(S,D).
+```
 
 **NF-Complete.**
 
-[
-igwedge VCList0(S,D)
-Rightarrow
+```text
+⋀ VCList0(S,D)
+⇒
 SatStar0(S,D).
-]
+```
 
 **NF-Compare.**
 
-[
+```text
 NF0(D_1)=NF0(D_2)
-Rightarrow
-igwedge VCList0(S,D_1)
-leftrightarrow
-igwedge VCList0(S,D_2).
-]
+⇒
+⋀ VCList0(S,D_1)
+⇔
+⋀ VCList0(S,D_2).
+```
 
 ### Well-formedness
 
@@ -960,18 +960,18 @@ leftrightarrow
 
 **P1-P0.**
 
-[
-SatStar1(S,D)Rightarrow SatStar0(S,D)
-]
+```text
+SatStar1(S,D)⇒ SatStar0(S,D)
+```
 
 when top guards are always active.
 
 **P1-Monotone.**
 
-[
+```text
 Evsubseteq Ev'
-Rightarrow NF1(D,Ev)subseteq NF1(D,Ev').
-]
+⇒ NF1(D,Ev)⊆ NF1(D,Ev').
+```
 
 ### Engine
 
@@ -999,11 +999,11 @@ The required categorical structure is intentionally modest.
 - propositions under entailment form an entailment preorder.
 - stronger specifications entail weaker obligations:
 
-[
+```text
 D_1sqsubseteq D_2
-Rightarrow
-Sat(S,D_2)dash Sat(S,D_1).
-]
+⇒
+Sat(S,D_2)⊢ Sat(S,D_1).
+```
 
 No adjunction, cartesian closure, or thin-category claim is made unless the required objects, morphisms, equivalences, and hom-set correspondence are explicitly defined.
 
