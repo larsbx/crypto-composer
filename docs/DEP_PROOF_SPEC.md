@@ -303,11 +303,11 @@ StageResult(S,Γ,D) :=
     proof    : Proof(Sat(S,Γ,D)),
     post     : SchemeState,
     evidence : EvidenceCtx,
-    refines  : Refines(S, Γ, post, evidence)
+    refines  : RefinesStage(S, Γ, D, proof, post, evidence)
   }
 ```
 
-The domain defines `Refines(inputState,inputEvidence,outputState,outputEvidence)`: it proves that the output state/context is an authorized refinement produced from the particular input state/context. The relation must preserve the provenance link to `Γ`; an arbitrary evidence context cannot be substituted merely because it validates the next stage.
+The domain defines `RefinesStage(inputState,inputEvidence,spec,proof,outputState,outputEvidence)`: it proves that this particular output state/context is an authorized transition produced by executing the particular specification and proof from the particular input state/context. Indexing by `D` and `proof` prevents a transition authorized for some other stage from being attached to `D1` merely because the input state happens to match. The relation must also preserve the provenance link to `Γ`; an arbitrary evidence context cannot be substituted merely because it validates the next stage.
 
 For obligations that prove a fact without changing state or evidence, define a reflexive constructor:
 
@@ -318,7 +318,7 @@ pureStage(S,Γ,π : Proof(Sat(S,Γ,D)))
     proof    = π,
     post     = S,
     evidence = Γ,
-    refines  = Refines.refl(S,Γ)
+    refines  = RefinesStage.refl(S,Γ,D,π)
   }
 ```
 
@@ -958,7 +958,7 @@ Each certificate profile names its TCB.
 At minimum:
 
 1. `Sat` and sort/kind interpretation;
-2. state/evidence transition semantics for `StageResult`;
+2. stage-indexed state/evidence transition semantics for `StageResult`, including `RefinesStage(S,Γ,D,proof,post,evidence)`;
 3. the proof kernel or proof-object checker;
 4. the `CProp` verifier-to-proof bridge;
 5. canonical serialization/hash routines;
@@ -1202,7 +1202,7 @@ A first conforming slice must prove by tests and/or mechanization that:
 
 1. `a ⊸ b` rejects a state where `b` is defined and `a` is not;
 2. the same relation does not reject merely because `a` exists without `b`;
-3. sequencing syntax binds an abstract `StageVar`, and stage two can depend on the concrete stage-one post-state/evidence only through capture-avoiding semantic instantiation;
+3. sequencing syntax binds an abstract `StageVar`, and stage two can depend on the concrete stage-one post-state/evidence only through capture-avoiding semantic instantiation of a `StageResult` whose transition is indexed by the exact first-stage specification and proof;
 4. replacing the sequence with a product fails a negative test;
 5. every unconditional kernel atom in a final proof has a proof-consuming plan node whose continuation constructs a reflexive `pureStage`, not a bare proof masquerading as a stage result;
 6. branch-local obligations cannot be satisfied by mixing evidence from two `choose` branches;
