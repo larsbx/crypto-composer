@@ -1,8 +1,74 @@
 const std = @import("std");
-const builtin = @import("builtin");
-const c = @cImport({
-    @cInclude("sqlite3.h");
-});
+
+// SQLite's C ABI is stable and this ledger uses only this fixed subset.
+// Zig 0.17 removed the built-in C translation form used previously; keep
+// the existing -lsqlite3 linkage while declaring the consumed ABI explicitly.
+const c = struct {
+    pub const sqlite3 = opaque {};
+    pub const sqlite3_stmt = opaque {};
+
+    pub const SQLITE_OK: c_int = 0;
+    pub const SQLITE_ROW: c_int = 100;
+    pub const SQLITE_DONE: c_int = 101;
+    pub const SQLITE_NULL: c_int = 5;
+
+    pub const SQLITE_OPEN_READWRITE: c_int = 0x00000002;
+    pub const SQLITE_OPEN_CREATE: c_int = 0x00000004;
+
+    pub const ExecCallback = *const fn (
+        ?*anyopaque,
+        c_int,
+        [*c][*c]u8,
+        [*c][*c]u8,
+    ) callconv(.c) c_int;
+    pub const Destructor = *const fn (?*anyopaque) callconv(.c) void;
+    pub const sqlite3_destructor_type = ?Destructor;
+
+    // SQLite defines SQLITE_TRANSIENT as ((sqlite3_destructor_type)-1).
+    pub const SQLITE_TRANSIENT: sqlite3_destructor_type =
+        @as(Destructor, @ptrFromInt(std.math.maxInt(usize)));
+
+    pub extern fn sqlite3_open_v2(
+        filename: [*:0]const u8,
+        db: *?*sqlite3,
+        flags: c_int,
+        vfs: ?[*:0]const u8,
+    ) c_int;
+    pub extern fn sqlite3_close(db: *sqlite3) c_int;
+    pub extern fn sqlite3_exec(
+        db: *sqlite3,
+        sql: [*:0]const u8,
+        callback: ?ExecCallback,
+        callback_arg: ?*anyopaque,
+        error_message: ?*[*c]u8,
+    ) c_int;
+    pub extern fn sqlite3_errmsg(db: *sqlite3) [*:0]const u8;
+    pub extern fn sqlite3_prepare_v2(
+        db: *sqlite3,
+        sql: [*]const u8,
+        sql_len: c_int,
+        stmt: *?*sqlite3_stmt,
+        tail: ?*?[*:0]const u8,
+    ) c_int;
+    pub extern fn sqlite3_finalize(stmt: *sqlite3_stmt) c_int;
+    pub extern fn sqlite3_step(stmt: *sqlite3_stmt) c_int;
+    pub extern fn sqlite3_bind_text(
+        stmt: *sqlite3_stmt,
+        index: c_int,
+        text: [*]const u8,
+        text_len: c_int,
+        destructor: sqlite3_destructor_type,
+    ) c_int;
+    pub extern fn sqlite3_bind_int64(stmt: *sqlite3_stmt, index: c_int, value: i64) c_int;
+    pub extern fn sqlite3_bind_int(stmt: *sqlite3_stmt, index: c_int, value: c_int) c_int;
+    pub extern fn sqlite3_bind_null(stmt: *sqlite3_stmt, index: c_int) c_int;
+    pub extern fn sqlite3_column_int64(stmt: *sqlite3_stmt, index: c_int) i64;
+    pub extern fn sqlite3_column_int(stmt: *sqlite3_stmt, index: c_int) c_int;
+    pub extern fn sqlite3_column_type(stmt: *sqlite3_stmt, index: c_int) c_int;
+    pub extern fn sqlite3_column_text(stmt: *sqlite3_stmt, index: c_int) ?[*]const u8;
+    pub extern fn sqlite3_column_bytes(stmt: *sqlite3_stmt, index: c_int) c_int;
+    pub extern fn sqlite3_last_insert_rowid(db: *sqlite3) i64;
+};
 
 pub const Status = enum { red, green };
 
@@ -343,13 +409,13 @@ fn stepDone(stmt: *c.sqlite3_stmt) !void {
     if (rc != c.SQLITE_DONE) return error.SqliteError;
 }
 
-fn runCommand(allocator: std.mem.Allocator, argv: []const []const u8) !i32 {
-    const result = try std.process.Child.run(.{ .allocator = allocator, .argv = argv });
+fn runCommand(allocator: std.mem.Allocator, io: std.Io, argv: []const []const u8) !i32 {
+    const result = try std.process.run(allocator, io, .{ .argv = argv });
     defer allocator.free(result.stdout);
     defer allocator.free(result.stderr);
 
     return switch (result.term) {
-        .Exited => |code| code,
+        .exited => |code| @intCast(code),
         else => error.CommandFailed,
     };
 }
@@ -372,11 +438,8 @@ pub fn requireRunArgs(run_args: ?[]const []const u8) ![]const []const u8 {
     return args;
 }
 
-fn sleepMillis(ms: u64) void {
-    switch (builtin.os.tag) {
-        .windows => _ = std.os.windows.kernel32.SleepEx(@intCast(ms), std.os.windows.FALSE),
-        else => std.posix.nanosleep(ms / 1000, (ms % 1000) * std.time.ns_per_ms),
-    }
+fn sleepMillis(io: std.Io, ms: u64) !void {
+    try io.sleep(.fromMilliseconds(ms), .awake);
 }
 
 fn renderBar(buf: []u8, pos: usize) []const u8 {
@@ -387,10 +450,10 @@ fn renderBar(buf: []u8, pos: usize) []const u8 {
     return buf;
 }
 
-fn showRedProgress(file: std.fs.File, red_count: usize) !void {
+fn showRedProgress(file: std.Io.File, io: std.Io, red_count: usize) !void {
     const bar_width = 16;
     var bar_buf: [bar_width]u8 = undefined;
-    const is_tty = file.isTty();
+    const is_tty = try file.isTty(io);
     const frames: usize = if (is_tty) bar_width * 2 else 1;
 
     var frame: usize = 0;
@@ -406,13 +469,13 @@ fn showRedProgress(file: std.fs.File, red_count: usize) !void {
             )
         else
             try std.fmt.bufPrint(&line_buf, "[{s}] red tests={d}\n", .{ bar, red_count });
-        try file.writeAll(line);
-        if (is_tty) sleepMillis(40);
+        try file.writeStreamingAll(io, line);
+        if (is_tty) try sleepMillis(io, 40);
     }
-    if (is_tty) try file.writeAll("\n");
+    if (is_tty) try file.writeStreamingAll(io, "\n");
 }
 
-fn writeRecordUpdate(file: std.fs.File, allocator: std.mem.Allocator, result: *const RecordResult) !void {
+fn writeRecordUpdate(file: std.Io.File, io: std.Io, allocator: std.mem.Allocator, result: *const RecordResult) !void {
     var exit_buf: [32]u8 = undefined;
     const exit_text: []const u8 = if (result.row.last_exit_code) |code|
         try std.fmt.bufPrint(&exit_buf, "{d}", .{code})
@@ -428,7 +491,7 @@ fn writeRecordUpdate(file: std.fs.File, allocator: std.mem.Allocator, result: *c
         .{ result.event_id, status_text, result.row.test_name },
     );
     defer allocator.free(header);
-    try file.writeAll(header);
+    try file.writeStreamingAll(io, header);
 
     const details = try std.fmt.allocPrint(
         allocator,
@@ -436,11 +499,11 @@ fn writeRecordUpdate(file: std.fs.File, allocator: std.mem.Allocator, result: *c
         .{ result.row.updated_at, note_text, command_text, exit_text },
     );
     defer allocator.free(details);
-    try file.writeAll(details);
+    try file.writeStreamingAll(io, details);
 }
 
-fn printUsage(file: std.fs.File) !void {
-    try file.writeAll(
+fn printUsage(file: std.Io.File, io: std.Io) !void {
+    try file.writeStreamingAll(io,
         \\Usage:
         \\  zig run tdd_ledger.zig -- [--db path] <command> [args]
         \\
@@ -462,48 +525,34 @@ fn printUsage(file: std.fs.File) !void {
     );
 }
 
-pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+    const io = init.io;
 
-    const stderr = std.fs.File.stderr();
-    const stdout = std.fs.File.stdout();
-    const args = try std.process.argsAlloc(allocator);
-    defer std.process.argsFree(allocator, args);
+    const stderr = std.Io.File.stderr();
+    const stdout = std.Io.File.stdout();
+    const args = try init.minimal.args.toSlice(init.arena.allocator());
 
-    var db_path: []const u8 = ".tdd_ledger.sqlite";
-    var db_path_owned: ?[]u8 = null;
-    defer if (db_path_owned) |buf| allocator.free(buf);
-
-    if (std.process.getEnvVarOwned(allocator, "TDD_LEDGER_DB")) |val| {
-        db_path = val;
-        db_path_owned = val;
-    } else |err| switch (err) {
-        error.EnvironmentVariableNotFound => {},
-        else => return err,
-    }
+    var db_path: []const u8 = init.environ_map.get("TDD_LEDGER_DB") orelse ".tdd_ledger.sqlite";
 
     var i: usize = 1;
     while (i < args.len) : (i += 1) {
         const arg = args[i];
         if (std.mem.eql(u8, arg, "--help")) {
-            try printUsage(stderr);
+            try printUsage(stderr, io);
             return;
         }
         if (std.mem.eql(u8, arg, "--db")) {
             i += 1;
             if (i >= args.len) return error.InvalidArgs;
-            if (db_path_owned) |buf| allocator.free(buf);
             db_path = args[i];
-            db_path_owned = null;
             continue;
         }
         break;
     }
 
     if (i >= args.len) {
-        try printUsage(stderr);
+        try printUsage(stderr, io);
         return error.InvalidArgs;
     }
 
@@ -523,7 +572,7 @@ pub fn main() !void {
         const green = try ledger.countByStatus(.green);
         const line = try std.fmt.allocPrint(allocator, "red={d} green={d}\n", .{ red, green });
         defer allocator.free(line);
-        try stdout.writeAll(line);
+        try stdout.writeStreamingAll(io, line);
         return;
     }
 
@@ -532,10 +581,10 @@ pub fn main() !void {
         defer ledger.deinit();
         const red = try ledger.countByStatus(.red);
         if (red > 0) {
-            try showRedProgress(stderr, red);
+            try showRedProgress(stderr, io, red);
             const line = try std.fmt.allocPrint(allocator, "red tests remain: {d}\n", .{red});
             defer allocator.free(line);
-            try stderr.writeAll(line);
+            try stderr.writeStreamingAll(io, line);
             return error.RedTestsRemain;
         }
         return;
@@ -558,7 +607,7 @@ pub fn main() !void {
                 .{since_epoch},
             );
             defer allocator.free(line);
-            try stderr.writeAll(line);
+            try stderr.writeStreamingAll(io, line);
             return error.MissingRedSince;
         }
         return;
@@ -592,14 +641,14 @@ pub fn main() !void {
         var exit_code: ?i32 = null;
         const cmd_args = requireRunArgs(run_args) catch |err| {
             if (err == error.MissingRun) {
-                try stderr.writeAll("missing --run command\n");
+                try stderr.writeStreamingAll(io, "missing --run command\n");
                 return err;
             }
             return err;
         };
         command = try joinArgs(allocator, cmd_args);
         defer allocator.free(command.?);
-        const code = try runCommand(allocator, cmd_args);
+        const code = try runCommand(allocator, io, cmd_args);
         if (std.mem.eql(u8, cmd, "red")) {
             if (code == 0) return error.ExpectedFailure;
         } else {
@@ -620,12 +669,12 @@ pub fn main() !void {
         defer result.deinit(allocator);
         if (status == .red) {
             const red = try ledger.countByStatus(.red);
-            try showRedProgress(stdout, red);
+            try showRedProgress(stdout, io, red);
         }
-        try writeRecordUpdate(stdout, allocator, &result);
+        try writeRecordUpdate(stdout, io, allocator, &result);
         return;
     }
 
-    try printUsage(stderr);
+    try printUsage(stderr, io);
     return error.InvalidArgs;
 }

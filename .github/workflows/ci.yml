@@ -16,12 +16,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # TODO(v0.2+): pin Zig version to the project's declared minimum.
-      # If you bump Zig, update this version and re-run `make manifest`.
+      # Zig is pinned to the repository's declared toolchain. Keep this value,
+      # README.md, AGENTS.md, and MANIFEST.SHA256 in sync.
       - name: Setup Zig
         uses: goto-bus-stop/setup-zig@v2
         with:
-          version: 0.13.0
+          version: 0.17.0
 
       - name: Run CI (fmt-check, test, manifest verify)
         shell: bash

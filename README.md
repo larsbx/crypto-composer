@@ -42,7 +42,7 @@ This repo is deliberately sprinkled with `// TODO(v0.2+)` markers for next incre
 - CLI command parsing (currently minimal)
 
 ## Quickstart (local)
-1. Install Zig (>= 0.13) and Python 3.
+1. Install Zig 0.17.0 and Python 3.
 2. From the repo root:
    - `make test`
    - `make ci`
