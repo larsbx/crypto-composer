@@ -402,18 +402,42 @@ MergeStages(S,Γ,D1,D2,target) :=
 A merge implementation must prove that its final post-state/evidence is a
 valid `RefinesStage` transition for the target specification.
 
-Universal assembly is likewise explicit:
+Universal assembly is likewise explicit and carries its compatibility proof.
 
 ```text
+ForallCompat(S,Γ,τ,D,results) : Prop
+
 ForallStages(S,Γ,τ,D) :=
   (results : Πx:τ. StageResult(S,Γ+x,D(x)))
+  → Proof(ForallCompat(S,Γ,τ,D,results))
   → StageResult(S,Γ,∀x:τ.D(x))
 ```
 
-The initial `pureForall` assembler is defined only when every result is
-reflexive on `S`; it constructs the universal proof pointwise and returns a
-`pureStage`. Any stateful `ForallStages` implementation must supply its own
-coherence/merge theorem and `RefinesStage` proof.
+The initial compatibility predicate is reflexive/pure:
+
+```text
+IsPureStage(S,Γ,D,r) :=
+  r.post = S
+  ∧ r.evidence = Γ
+  ∧ PureRefinement(r.refines)
+
+PureForallCompat(S,Γ,τ,D,results) :=
+  Πx:τ. IsPureStage(S,Γ+x,D(x),results(x))
+```
+
+and the initial `pureForall` assembler is:
+
+```text
+pureForall :
+  (results : Πx:τ. StageResult(S,Γ+x,D(x)))
+  → Proof(PureForallCompat(S,Γ,τ,D,results))
+  → StageResult(S,Γ,∀x:τ.D(x))
+```
+
+It constructs the universal proof pointwise and returns a reflexive parent
+stage. Thus `pureForall` never claims to accept arbitrary state-changing
+results. A later stateful universal must define a different `ForallCompat`
+predicate and supply its own coherence theorem and `RefinesStage` proof.
 
 Sequential composition has a distinct normative law because the second stage
 starts from the first stage's output:
@@ -625,8 +649,11 @@ choose(p,q,injectLeft,injectRight)
   where injectLeft  : StageResult(S,Γ,D1) → StageResult(S,Γ,D1 ∨ D2)
         injectRight : StageResult(S,Γ,D2) → StageResult(S,Γ,D1 ∨ D2)
 
-forall(τ,f,assembleForall)
+forall(τ,f,compat,assembleForall)
   where f : (x:τ) → VCPlan(S,Γ+x,D(x))
+        compat :
+          (results : Πx. StageResult(S,Γ+x,D(x)))
+          → Proof(ForallCompat(S,Γ,τ,D,results))
         assembleForall : ForallStages(S,Γ,τ,D)
 
 seq(p,q,assembleSeq)
@@ -736,13 +763,16 @@ Symbolic mode preserves:
 forall(
   τ,
   λx. CompilePlan(S,Γ+x,D(x)),
-  assembleForall
+  provePureForallCompat,
+  pureForall
 )
 ```
 
-The first implementation uses `assembleForall = pureForall` and therefore
-requires proof-only/reflexive bodies under WF-5. A stateful universal is not
-accepted until a domain-specific coherent assembler is proved.
+Under WF-5 the compiler must construct `provePureForallCompat` from the
+body-plan invariant that every successful child result is pure/reflexive. If
+that proof cannot be constructed, the initial universal form is rejected
+rather than passing arbitrary results to `pureForall`. A later stateful
+universal supplies its own `ForallCompat` proof producer and assembler.
 
 ### Star
 
@@ -809,7 +839,7 @@ Behavior:
 - `both` compiles both conjunction sides and applies `combineAnd` only when both results exist;
 - `tensor` compiles both compatible tensor sides and applies `combineTensor` only when both results exist;
 - `choose` preserves branch separation;
-- `forall` expands or preserves a gate and returns solved only after its declared `assembleForall` constructs the parent `StageResult`;
+- `forall` expands or preserves a gate and returns solved only after its compatibility proof producer succeeds and the declared `assembleForall` constructs the parent `StageResult`;
 - `seq` compiles stage one first, opens stage two only after receiving its `StageResult`, and returns solved only after `assembleSeq` (canonically `composeSeqStage`) constructs a `StageResult` for the whole sequence.
 
 ## 17. Prop / CProp / verification
@@ -820,12 +850,26 @@ Full propositions are not assumed decidable.
 Prop
 CProp
 
-Extract : Prop → Option(CProp)
+CheckableView(S,Γ,φ) :=
+  {
+    check : CProp,
+    reflect :
+      Proof(CPropSat(S,Γ,check))
+      → Proof(φ)
+  }
+
+Extract :
+  (S : SchemeState)
+  → (Γ : EvidenceCtx)
+  → (φ : Prop)
+  → Option(CheckableView(S,Γ,φ))
 
 Verify :
-  SchemeState × EvidenceCtx × CProp
+  (S : SchemeState)
+  → (Γ : EvidenceCtx)
+  → (cφ : CProp)
   →
-  sat(cert)
+  sat(cert : Proof(CPropSat(S,Γ,cφ)))
   | unsat(counterexample)
   | unknown(explanation)
 
@@ -838,6 +882,12 @@ Plan :
   → (φ : Prop)
   → VCPlan(S,Γ,rich(manual φ))
 ```
+
+`Extract` therefore cannot replace an obligation with an unrelated checkable
+tautology: a successful extraction carries the proof transformer that maps a
+verified `CPropSat` proof back to the **same source proposition** `φ`.
+The `reflect` map is either a proof term checked by the proof kernel or part
+of the declared extraction TCB.
 
 `Plan` is the explicit manual/uncheckable bridge: it preserves the exact
 proposition as a rich obligation rather than returning an unindexed plan.
@@ -1192,7 +1242,7 @@ At minimum:
 1. `Sat` and sort/kind interpretation;
 2. stage-indexed state/evidence transition semantics for `StageResult`, including `RefinesStage(S,Γ,D,proof,post,evidence)`;
 3. the proof kernel or proof-object checker;
-4. the `CProp` verifier-to-proof bridge;
+4. the `CProp` verifier-to-`CPropSat` bridge and every non-kernel `Extract.reflect` proof transformer;
 5. canonical serialization/hash routines;
 6. compiler/interpreter correctness assumptions until mechanized;
 7. imported theorem trust and hypothesis checking;
@@ -1322,7 +1372,14 @@ original input. In particular, sequential assembly is justified by
 
 ### Verification/certificates
 
-**V1 — CProp verifier soundness.** `sat(cert)` yields a proof only through the declared trusted checker.
+**V1 — CProp verifier soundness.** `sat(cert)` yields
+`Proof(CPropSat(S,Γ,cφ))` only through the declared trusted checker.
+
+**V1a — extraction reflection soundness.** For every successful
+`Extract(S,Γ,φ) = some {check=cφ, reflect}`,
+`reflect : Proof(CPropSat(S,Γ,cφ)) → Proof(φ)`. Therefore automated
+verification can discharge the original open node only through this exact
+source-proposition bridge.
 
 **V2 — ProofCertificate soundness.** A well-formed `ProofCertificate(S,Γ,D)` inhabits `Sat(S,Γ,D)`.
 
@@ -1461,7 +1518,9 @@ A first conforming slice must prove by tests and/or mechanization that:
 16. a non-reflexive two-stage sequence can construct `StageResult(S,Γ,seq(D1,k))` only through a stage-indexed sequential refinement composition such as `RefinesStage.seq`;
 17. P1 guard activation must supply `ActiveSound` evidence for the same `evalProp` used by `SatReq`;
 18. the initial universal-binder implementation is proof-only/reflexive, or else supplies an explicit coherent `ForallStages` assembler;
-19. manual/uncheckable propositions enter through `rich(manual φ)`, so `Plan` remains indexed by the exact `(S,Γ,D)` goal rather than producing an untyped `VCPlan`.
+19. manual/uncheckable propositions enter through `rich(manual φ)`, so `Plan` remains indexed by the exact `(S,Γ,D)` goal rather than producing an untyped `VCPlan`;
+20. every successful `Extract(S,Γ,φ)` returns a `reflect` proof map from the verified `CPropSat` result back to that exact `φ`;
+21. the initial `pureForall` assembler receives an explicit `PureForallCompat` proof and cannot be applied to arbitrary state-changing child results.
 
 ## 35. Non-goals
 
