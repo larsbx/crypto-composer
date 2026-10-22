@@ -16,5 +16,5 @@ pub fn emitJsonSummary(allocator: std.mem.Allocator, gr: *const graph.Compositio
     try obj.put("outputs", .{ .integer = @intCast(gr.outputs.len) });
 
     const root = std.json.Value{ .object = obj };
-    return std.json.stringifyAlloc(allocator, root, .{ .whitespace = .indent_2 });
+    return std.json.Stringify.valueAlloc(allocator, root, .{ .whitespace = .indent_2 });
 }
