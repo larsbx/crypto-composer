@@ -450,7 +450,7 @@ seqProof(
   p2 : Proof(
     Sat(
       r1.post,
-      bindStageResult(Γ,k.var,r1),
+      bindStageResult(r1.evidence,k.var,r1),
       instantiateStage(k,r1)
     )
   )
@@ -462,7 +462,7 @@ RefinesStage.seq :
   (r1 : StageResult(S,Γ,D1))
   → (r2 : StageResult(
         r1.post,
-        bindStageResult(Γ,k.var,r1),
+        bindStageResult(r1.evidence,k.var,r1),
         instantiateStage(k,r1)
       ))
   → RefinesStage(
@@ -495,7 +495,7 @@ Sat(S,Γ, seq(D1,k))
   Σ(r1 : StageResult(S,Γ,D1)).
     Sat(
       r1.post,
-      bindStageResult(Γ, k.var, r1),
+      bindStageResult(r1.evidence, k.var, r1),
       instantiateStage(k, r1)
     )
 ```
@@ -677,14 +677,14 @@ seq(p,q,assembleSeq)
     q : (r1 : StageResult(S,Γ,D1))
         → VCPlan(
             r1.post,
-            bindStageResult(Γ, k.var, r1),
+            bindStageResult(r1.evidence, k.var, r1),
             instantiateStage(k, r1)
           )
     assembleSeq :
       (r1 : StageResult(S,Γ,D1))
       → (r2 : StageResult(
             r1.post,
-            bindStageResult(Γ,k.var,r1),
+            bindStageResult(r1.evidence,k.var,r1),
             instantiateStage(k,r1)
           ))
       → StageResult(S,Γ,seq(D1,k))
@@ -758,7 +758,7 @@ seq(
   λr1.
     CompilePlanAt(
       r1.post,
-      bindStageResult(Γ, k.var, r1),
+      bindStageResult(r1.evidence, k.var, r1),
       instantiateStage(k, r1)
     ),
   composeSeqStage
@@ -865,6 +865,11 @@ Full propositions are not assumed decidable.
 Prop
 CProp
 
+CPropSat :
+  SchemeState × EvidenceCtx × CProp → Prop
+
+CPropSat(S,Γ,cφ) := ⟦cφ⟧ᴄ_(S,Γ)
+
 CheckableView(S,Γ,φ) :=
   {
     check : CProp,
@@ -902,7 +907,9 @@ Plan :
 tautology: a successful extraction carries the proof transformer that maps a
 verified `CPropSat` proof back to the **same source proposition** `φ`.
 The `reflect` map is either a proof term checked by the proof kernel or part
-of the declared extraction TCB.
+of the declared extraction TCB. `CPropSat` is the total semantic
+interpretation of the checkable AST; `Verify` is only a decision/evidence
+procedure for that semantics and does not define it.
 
 `Plan` is the explicit manual/uncheckable bridge: it preserves the exact
 proposition as a rich obligation rather than returning an unindexed plan.
@@ -1517,7 +1524,7 @@ A first conforming slice must prove by tests and/or mechanization that:
 
 1. `a ⊸ b` rejects a state where `b` is defined and `a` is not;
 2. the same relation does not reject merely because `a` exists without `b`;
-3. sequencing syntax binds an abstract `StageVar`, and stage two can depend on the concrete stage-one post-state/evidence only through capture-avoiding semantic instantiation of a `StageResult` whose transition is indexed by the exact first-stage specification and proof;
+3. sequencing syntax binds an abstract `StageVar`, and stage two can depend on the concrete stage-one post-state/evidence only through capture-avoiding semantic instantiation of a `StageResult` whose transition is indexed by the exact first-stage specification and proof; the second-stage context is an extension of `r1.evidence`, never a reset to the original `Γ`;
 4. replacing the sequence with a product fails a negative test;
 5. every unconditional kernel atom in a final proof has a proof-consuming plan node whose continuation constructs a reflexive `pureStage`, not a bare proof masquerading as a stage result;
 6. branch-local obligations cannot be satisfied by mixing evidence from two `choose` branches;
