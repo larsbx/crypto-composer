@@ -861,35 +861,47 @@ Behavior:
 
 Full propositions are not assumed decidable.
 
+A proof-producing tool environment is itself proof-carrying. Bare hypotheses
+are not silently installed as solver axioms.
+
 ```text
 Prop
 CProp
 
+ProofFact := Σ(p : Prop). Proof(p)
+
+VerifyEnv(S,Γ) :=
+  {
+    state      : SchemeState = S,
+    evidence   : EvidenceCtx = Γ,
+    parameters : CanonicalParameterEnv,
+    definitions: CanonicalDefinitionEnv,
+    facts      : List ProofFact
+  }
+
 CPropSat :
-  SchemeState × EvidenceCtx × CProp → Prop
+  VerifyEnv(S,Γ) × CProp → Prop
 
-CPropSat(S,Γ,cφ) := ⟦cφ⟧ᴄ_(S,Γ)
+CPropSat(Σ,cφ) := ⟦cφ⟧ᴄ_Σ
 
-CheckableView(S,Γ,φ) :=
+CheckableView(Σ,φ) :=
   {
     check : CProp,
     reflect :
-      Proof(CPropSat(S,Γ,check))
+      Proof(CPropSat(Σ,check))
       → Proof(φ)
   }
 
 Extract :
-  (S : SchemeState)
-  → (Γ : EvidenceCtx)
+  (Σ : VerifyEnv(S,Γ))
   → (φ : Prop)
-  → Option(CheckableView(S,Γ,φ))
+  → Option(CheckableView(Σ,φ))
 
 Verify :
-  (S : SchemeState)
-  → (Γ : EvidenceCtx)
+  (Σ : VerifyEnv(S,Γ))
   → (cφ : CProp)
   →
-  sat(cert : Proof(CPropSat(S,Γ,cφ)))
+  sat(cert : Proof(CPropSat(Σ,cφ)))
   | unsat(counterexample)
   | unknown(explanation)
 
@@ -903,13 +915,20 @@ Plan :
   → VCPlan(S,Γ,rich(manual φ))
 ```
 
-`Extract` therefore cannot replace an obligation with an unrelated checkable
+Every `facts` entry carries the proof object that authorizes its use. A
+hypothetical or unproved assumption is **not** a `ProofFact`: it must remain
+an antecedent of the source proposition, a pending obligation, or an explicit
+`Conditional` claim in an EvidenceBundle. This prevents a solver-local axiom
+from being promoted to an unconditional `Proof(φ)`.
+
+`Extract` cannot replace an obligation with an unrelated checkable
 tautology: a successful extraction carries the proof transformer that maps a
 verified `CPropSat` proof back to the **same source proposition** `φ`.
 The `reflect` map is either a proof term checked by the proof kernel or part
 of the declared extraction TCB. `CPropSat` is the total semantic
-interpretation of the checkable AST; `Verify` is only a decision/evidence
-procedure for that semantics and does not define it.
+interpretation of the checkable AST under the proof-carrying environment;
+`Verify` is only a decision/evidence procedure for that semantics and does
+not define it.
 
 `Plan` is the explicit manual/uncheckable bridge: it preserves the exact
 proposition as a rich obligation rather than returning an unindexed plan.
@@ -917,29 +936,53 @@ proposition as a rich obligation rather than returning an unindexed plan.
 
 ### 17.1 Environment grounding
 
-Every checkable VC is interpreted under an explicit environment `Σ`.
+Every checkable VC is interpreted under its exact `VerifyEnv` value `Σ`.
+Its canonical encoding is content-addressed as `envHash`.
 
-A distinguished root obligation checks consistency/non-vacuity:
+A distinguished root obligation checks **encoding non-vacuity**, not the truth
+of any unproved assumption:
 
 ```text
 VCEnvConsistent(Σ)
 ```
 
-For this root alone, SAT may be success.
+For this root alone, SAT may be success. It establishes only that the encoded
+definitions/parameter constraints/facts admitted by the proof-carrying
+environment are jointly satisfiable in the checker encoding. It does not
+manufacture proofs of those facts.
 
-For universal VCs encoded to SMT:
+For a universal VC encoded to SMT:
 
 ```text
-check encode(Σ) ∧ ¬encode(vc)
+check encode(Σ) ∧ ¬encode(cφ)
 
-UNSAT   => proof relative to encoding/TCB
+UNSAT   => cert : Proof(CPropSat(Σ,cφ))
+           through the declared encoding/checker TCB
 SAT     => counterexample
 UNKNOWN => no proof
 ```
 
-Every artifact records `envHash`.
+A solver adapter must consume the proof objects attached to `Σ.facts` (or
+trusted kernel facts) when constructing the reflected proof. Merely inserting a
+formula into `encode(Σ)` is insufficient for `ProofCertificate` authority.
 
-### 17.2 Instantiation/readiness
+### 17.2 Obligation-solving bridge
+
+For an open node `φ` at `(S,Γ)`:
+
+1. construct a canonical `Σ : VerifyEnv(S,Γ)` from definitions plus currently
+   available proof-carrying facts;
+2. call `Extract(Σ,φ)`;
+3. if extraction returns `{check=cφ, reflect}`, call `Verify(Σ,cφ)`;
+4. on `sat(cert)`, form `pφ = reflect(cert) : Proof(φ)`;
+5. feed `pφ`, never the raw tool certificate, to the node continuation.
+
+Artifacts record the exact `envHash`, extractor/strategy identity, tool
+version, and tool binary hash.
+
+### 17.3 Instantiation/readiness
+
+### 17.3 Instantiation/readiness
 
 `VCInst(e)` is a kernel lookup, not an SMT query.
 
@@ -1264,7 +1307,7 @@ At minimum:
 1. `Sat` and sort/kind interpretation;
 2. stage-indexed state/evidence transition semantics for `StageResult`, including `RefinesStage(S,Γ,D,proof,post,evidence)`;
 3. the proof kernel or proof-object checker;
-4. the `CProp` verifier-to-`CPropSat` bridge and every non-kernel `Extract.reflect` proof transformer;
+4. the `CProp` verifier-to-`CPropSat` bridge, the canonical `VerifyEnv` encoding, proof-carrying environment-fact ingestion, and every non-kernel `Extract.reflect` proof transformer;
 5. canonical serialization/hash routines;
 6. compiler/interpreter correctness assumptions until mechanized;
 7. imported theorem trust and hypothesis checking;
@@ -1395,11 +1438,11 @@ original input. In particular, sequential assembly is justified by
 ### Verification/certificates
 
 **V1 — CProp verifier soundness.** `sat(cert)` yields
-`Proof(CPropSat(S,Γ,cφ))` only through the declared trusted checker.
+`Proof(CPropSat(Σ,cφ))` only through the declared trusted checker and the exact proof-carrying environment `Σ`.
 
 **V1a — extraction reflection soundness.** For every successful
-`Extract(S,Γ,φ) = some {check=cφ, reflect}`,
-`reflect : Proof(CPropSat(S,Γ,cφ)) → Proof(φ)`. Therefore automated
+`Extract(Σ,φ) = some {check=cφ, reflect}`,
+`reflect : Proof(CPropSat(Σ,cφ)) → Proof(φ)`. Therefore automated
 verification can discharge the original open node only through this exact
 source-proposition bridge.
 
@@ -1541,7 +1584,7 @@ A first conforming slice must prove by tests and/or mechanization that:
 17. P1 guard activation must supply `ActiveSound` evidence for the same `evalProp` used by `SatReq`;
 18. the initial universal-binder implementation is proof-only/reflexive, or else supplies an explicit coherent `ForallStages` assembler;
 19. manual/uncheckable propositions enter through `rich(manual φ)`, so `Plan` remains indexed by the exact `(S,Γ,D)` goal rather than producing an untyped `VCPlan`;
-20. every successful `Extract(S,Γ,φ)` returns a `reflect` proof map from the verified `CPropSat` result back to that exact `φ`;
+20. every successful `Extract(Σ,φ)` returns a `reflect` proof map from the verified `CPropSat(Σ,...)` result back to that exact `φ`, and every semantic fact used by `Σ` is proof-carrying;
 21. the initial `pureForall` assembler receives an explicit `PureForallCompat` proof and cannot be applied to arbitrary state-changing child results.
 
 ## 35. Non-goals
