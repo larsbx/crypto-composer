@@ -1,184 +1,260 @@
 # ADR: Dep–Proof placement in the repository estate
 
-**Decision:** the canonical home of Dep–Proof is `larsbx/crypto-composer`. Generic proof/evidence record infrastructure remains in `larsbx/finite-math-kernels/proof_records/`. No new top-level repository is introduced.
+**Decision:** Dep–Proof remains domain-owned by `larsbx/crypto-composer`, but the estate now has a three-layer authority model:
 
-**Status:** architecture decision and implementation map.
+1. `crypto-composer` — cryptographic domain/proof authority;
+2. `finite-math-kernels/kernel/proof_records` — generic evidence/provenance substrate;
+3. `semantic-categorical-oracle` — optional executable authority for explicitly registered structural semantic contracts only.
 
-## Context
+**Status:** revised architecture decision, October 22, 2026.
 
-The Dep–Proof design introduces a scheme-indexed dependency DSL and semantics, deterministic normalization, structured residual proof planning, an obligation-graph interpreter, and certificate construction.
+## 1. Why this revision exists
 
-The estate already contains two complementary pieces:
+The September 19 placement analysis correctly concluded that Dep–Proof should not become a new standalone repository and that generic evidence identity/closure belongs outside `crypto-composer`.
 
-1. `crypto-composer` owns cryptographic composition semantics and validation.
-2. `finite-math-kernels/proof_records` owns reusable content-addressed evidence records, dependency closure, canonical identity, and relationship-graph projection.
+Two things changed after that decision:
 
-Putting Dep–Proof into a third repository would split the semantic owner from the composition/checker code it is meant to organize, while duplicating evidence machinery already consolidated in `finite-math-kernels`.
+- `finite-math-kernels` expanded its proof-record subsystem with dependency alternatives and a domain-owned typed-proof-graph normalization contract;
+- `larsbx/semantic-categorical-oracle` became the estate's home for versioned executable semantic contracts, with an explicit authority firewall excluding mathematical proof and certificate acceptance.
 
-## Current crypto-composer anchors
+The revised placement preserves the original ownership boundary while recognizing that structural semantics can now have an independent oracle.
 
-The existing code already supplies most of the domain-side inputs Dep–Proof requires.
+## 2. Canonical domain owner: crypto-composer
 
-| Dep–Proof responsibility | Existing location | Current role |
+`crypto-composer` owns every question whose answer can change cryptographic proof or certificate acceptance:
+
+- DepSpec syntax;
+- `Requires` versus `Derives` relation typing;
+- scheme/state interpretation;
+- `Sat(S,Γ,D)`;
+- stage/state/evidence transition semantics;
+- P0/P1 obligation meaning;
+- GAME/OBS/WIT/RED domain objects;
+- trusted verifier adapters;
+- reduction/simulator correctness criteria;
+- security-bound composition-law applicability;
+- leakage-model adequacy;
+- construction of `ProofCertificate`;
+- final certificate acceptance.
+
+The corrected domain specification is `docs/DEP_PROOF_SPEC.md`.
+
+## 3. Existing crypto-composer anchors
+
+| Responsibility | Existing location | Relationship to Dep–Proof |
 | --- | --- | --- |
-| Primitive/interface contracts | `src/types/contracts.zig` | KEM/KDF/AEAD/SIG contracts and product requirements |
-| Assumptions | `src/types/assumptions.zig` | named assumption classes/expressions |
-| Concrete construction state | `src/schemas/graph.zig` | `CompositionGraph`, values, operations, flows, outputs |
-| Checkable local constraints | `src/constraints/` | C1–C6 and warnings |
-| Constraint dispatcher | `src/constraints/checker.zig` | present checker surface |
-| Proof-associated regression tests | `test/harness.zig` | statement/argument/evidence metadata tied to tests |
-| Artifact emission | `src/emit/artifact.zig` | current graph summary; already notes future machine-readable security claims and structured reductions |
-| Red/green execution provenance | `tdd_ledger.zig` | test execution ledger |
+| Primitive/interface contracts | `src/types/contracts.zig` | scheme/domain values |
+| Assumptions | `src/types/assumptions.zig` | named crypto assumptions |
+| Concrete construction IR | `src/schemas/graph.zig` | source of scheme/data-flow state |
+| Checkable constraints | `src/constraints/` | future CProp backends |
+| Constraint dispatcher | `src/constraints/checker.zig` | future verifier adapter surface |
+| Proof-associated tests | `test/harness.zig` | PDD metadata, not proof terms |
+| Artifact emission | `src/emit/artifact.zig` | future certificate/evidence emission |
+| Red/green execution ledger | `tdd_ledger.zig` | execution provenance, not theorem authority |
 
-What does **not** yet exist as a unified subsystem is the DepSpec/Sat/WF/NF0/VCPlan/RunPlan layer specified in `docs/DEP_PROOF_SPEC.md`.
+The current `CompositionGraph` remains the concrete construction/data-flow IR. Dep–Proof sits above it.
 
-## Decision
+## 4. Generic evidence owner: finite-math-kernels
 
-### Canonical semantic owner: crypto-composer
-
-`crypto-composer` owns:
-
-- `DepSpec` syntax;
-- scheme-indexed `Sat(S,D)`;
-- well-formedness;
-- P0/P1 normalization;
-- VC generation;
-- `Prop/CProp` distinction;
-- `VCPlan`;
-- `VCGraph` and control gates;
-- `RunPlan`;
-- crypto-domain GAME/OBS/WIT/RED objects;
-- verifier adapters;
-- certificate semantics;
-- explicit TCB and security-model declarations.
-
-This is the right ownership boundary because these concepts interpret cryptographic constructions and their security/implementation contracts.
-
-### Shared evidence substrate: finite-math-kernels
-
-`finite-math-kernels/proof_records` continues to own only generic evidence infrastructure:
-
-- record identity;
-- canonical serialization;
-- evidence classification;
-- identity-bearing dependency edges;
-- dependency closure;
-- typed relationship-graph projection;
-- evidence-vocabulary translation.
-
-The package explicitly does not prove statements or supply consumer policy. Dep–Proof must preserve that boundary.
-
-## Intended physical layout
+The current reusable package is:
 
 ```text
-crypto-composer/
-  docs/
-    DEP_PROOF_SPEC.md
-    DEP_PROOF_ESTATE_PLACEMENT.md
-
-  src/
-    dep/
-      ast.zig
-      well_formed.zig
-      satisfaction.zig
-      reach.zig
-      normalize.zig
-      residual.zig
-
-    proof/
-      proposition.zig
-      plan.zig
-      graph.zig
-      run_plan.zig
-      verify.zig
-      certificate.zig
-
-    games/
-    observables/
-    witnesses/
-
-    constraints/       # existing CProp/checker backends
-    schemas/           # existing concrete composition/data-flow IR
-    types/
-    catalog/
-    emit/
+larsbx/finite-math-kernels/kernel/proof_records/
 ```
 
-The exact subdirectory split may change during implementation, but the ownership split must not.
+It owns generic:
 
-## CompositionGraph is not replaced
+- canonical record identity;
+- canonical serialization;
+- evidence kinds/outcomes;
+- identity-bearing dependency edges;
+- dependency alternatives;
+- structural closure;
+- typed relationship-graph export;
+- domain-owned proof-graph representation normalization.
 
-`src/schemas/graph.zig::CompositionGraph` and Dep–Proof operate at different semantic layers.
+It does not decide:
+
+- cryptographic `Sat`;
+- whether a reduction is correct;
+- whether a security theorem follows;
+- whether a leakage model is adequate;
+- whether a cryptographic certificate is accepted.
+
+A complete proof-record closure is therefore an evidence-graph fact, not automatically a Dep–Proof `ProofCertificate`.
+
+### 4.1 Edge-type warning
+
+The generic typed proof graph uses premise → conclusion for proof sufficiency.
+
+Dep–Proof's prerequisite arrow is:
+
+```text
+a ⊸ b
+```
+
+meaning “b requires a”, and its definedness obligation is:
+
+```text
+def(b) → def(a)
+```
+
+Adapters must type those relations explicitly. No generic graph edge may be interpreted merely from its source/target positions.
+
+## 5. Structural semantic oracle: semantic-categorical-oracle
+
+The estate now has a dedicated executable semantic-contract layer.
+
+A future domain-owned contract such as:
+
+```text
+dep-proof-structure/v1
+```
+
+may authorize `semantic-categorical-oracle` to answer only explicitly registered structural questions such as:
+
+- AST interpretation;
+- canonical normal form;
+- α-equivalence;
+- preservation of branching;
+- preservation of binder context;
+- preservation of sequencing gates;
+- composition-preserving rendering.
+
+The domain must first publish:
+
+- the contract;
+- canonical vectors;
+- authority scope;
+- excluded questions;
+- approval evidence.
+
+The oracle does **not** acquire authority over:
+
+- mathematical proof;
+- cryptographic certificate acceptance;
+- effect authorization;
+- persisted state.
+
+This matches the oracle repository's current authority boundary.
+
+## 6. Revised architecture
+
+```text
+                       crypto-composer
+                 DOMAIN / PROOF AUTHORITY
+           DepSpec, Sat, crypto semantics, TCB,
+             trusted checkers, cert acceptance
+                    /                 \
+                   /                   \
+                  / structural          \ evidence
+                 / contracts             \
+                ▼                         ▼
+semantic-categorical-oracle     finite-math-kernels
+ STRUCTURAL SEMANTICS ORACLE      EVIDENCE SUBSTRATE
+ interpretation / normal form     proof_records
+ branch/binder/seq preservation   identity / provenance
+ composition preservation         closure / alternatives
+ no certificate acceptance        typed evidence graph
+```
+
+This is a three-layer authority model, not three competing implementations.
+
+## 7. Why Dep–Proof still does not get its own repository
+
+A standalone Dep–Proof repository would still create unnecessary semantic version skew:
+
+- crypto contract/schema changes would have to synchronize across repositories;
+- certificate acceptance would be separated from the checker/domain model that defines it;
+- generic proof-record functionality would risk duplication;
+- structural semantic-oracle authority would be harder to scope to domain-owned vectors.
+
+The domain specification and implementation therefore remain in `crypto-composer`.
+
+## 8. Intended crypto-composer layout
+
+```text
+src/
+  dep/
+    ast.zig
+    well_formed.zig
+    satisfaction.zig
+    reach.zig
+    analysis_normalize.zig
+    compile_plan.zig
+
+  proof/
+    proposition.zig
+    stage_result.zig
+    plan.zig
+    graph.zig
+    run_plan.zig
+    verify.zig
+    certificate.zig
+
+  games/
+  observables/
+  witnesses/
+  reductions/
+
+  constraints/
+  schemas/
+  types/
+  catalog/
+  emit/
+```
+
+## 9. CompositionGraph boundary
 
 `CompositionGraph` answers:
 
-> What cryptographic values, operations, branches, and data flows constitute this concrete construction?
+> What values, operations, branches, and flows make up this concrete construction?
 
 Dep–Proof answers:
 
-> What must be present or proven about this scheme, what evidence discharges those obligations, and what depends on that evidence?
+> What prerequisites and proof obligations must this construction satisfy, what evidence discharges them, and how does proof control flow depend on earlier results?
 
-The composition graph is therefore one primary source for scheme state `S` and checkable facts. It should not be forced to encode proof binders, branch proof choice, universal quantification, or proof continuations.
+Neither should absorb the other.
 
-## finite-math-kernels boundary
-
-The integration direction is:
-
-```text
-crypto-composer
-  DepSpec / Sat / verifier / certificate semantics
-                │
-                │ emits or consumes evidence records
-                ▼
-finite-math-kernels/proof_records
-  identity / provenance / generic closure / graph
-```
-
-A complete `proof_records` closure says that the declared evidence-record graph is structurally complete under the consumer's policy. It does **not** imply that a cryptographic `Sat(S,D)` proposition is true.
-
-That implication exists only when `crypto-composer` validates the evidence through its declared trusted proof/checker boundary.
-
-## Other estate consumers
+## 10. Other estate consumers
 
 ### objective-review-metasytem
 
-May contain a Dep–Proof review/audit skill or manifesto rule set. It must not become the semantic owner of DepSpec or certificate checking.
+May consume the general structured-plan ideas and may have its own semantic contract in `semantic-categorical-oracle`. It is not the owner of cryptographic Dep–Proof semantics.
 
 ### SpruceGoose
 
-May emit deployment/test/release evidence that is translated into generic proof records. It is a producer/consumer of evidence, not the owner of Dep–Proof semantics.
+May emit release/execution evidence into the generic proof-record vocabulary. It does not own Dep–Proof truth.
 
 ### Halaqa / Senad+
 
-May transport, attest, or package proof-carrying effects and certificate references. It must preserve identity/provenance rather than reinterpret proof truth.
+May transport or attest certificate/evidence references. Production verifier authority remains with the designated verifier.
 
-### research repositories
+### Research repositories
 
-May consume generic proof records and, where relevant, Dep–Proof-style obligation machinery. Their project-specific theorem status remains consumer policy.
+May reuse proof-record or structured-obligation patterns, but theorem status remains local consumer policy/proof authority.
 
-## Why no new repository
+## 11. Current implementation sequence
 
-A separate `dep-proof` repository would create three avoidable problems:
+1. Repair the `crypto-composer` repository/toolchain gate.
+2. Land the corrected Dep–Proof specification.
+3. Implement `Requires` orientation, WF, Reach, and control-free P0 analysis under red-first PDD/TDD.
+4. Implement `StageResult`, `VCPlan`, and `RunPlan`.
+5. Integrate existing constraints as explicit checkable backends.
+6. Add the FMK proof-record adapter with typed relation mapping.
+7. Publish domain-owned structural vectors.
+8. Only then register/promote a Dep–Proof structural contract in `semantic-categorical-oracle`.
+9. Add GAME/OBS/WIT/RED layers incrementally.
 
-1. cryptographic semantics would be separated from the domain model and checker backends that define them;
-2. generic evidence identity/closure would likely be duplicated from `finite-math-kernels`;
-3. version skew between composition schemas, obligations, and security models would become an integration problem instead of an internal compatibility invariant.
+## 12. Review invariants
 
-The desired architecture is therefore a **two-repository boundary**, not a new island.
+Use these three questions during review:
 
-## Implementation sequence
+> Does this change alter what a cryptographic obligation means or what proves it?  
+> If yes, it belongs under crypto-composer domain authority.
 
-1. Land the specification and architecture boundary.
-2. Add `src/dep/` with AST, WF, reachability, and P0 normalization.
-3. Add focused regression tests before implementation changes, following the repository's TDD/PDD rules.
-4. Add `src/proof/` plan/graph/interpreter.
-5. Adapt existing constraints into explicit `CProp` backends rather than rewriting them all at once.
-6. Add proof-record adapter code at the boundary with `finite-math-kernels`.
-7. Add GAME/OBS/WIT/RED domain objects incrementally.
-8. Mechanize the minimal normalization/interpreter theorems in a selected proof assistant without moving semantic ownership out of `crypto-composer`.
+> Does this change only encode, identify, relate, or close generic evidence records?  
+> If yes, it belongs under finite-math-kernels proof_records authority.
 
-## Invariant to preserve
-
-There is one sentence reviewers should use as the boundary test:
-
-> `crypto-composer` decides what a cryptographic obligation means and what evidence proves it; `finite-math-kernels` decides only whether generic evidence records are well-formed, content-addressed, and structurally complete under supplied policy.
+> Does this change only give executable meaning to an explicitly registered structural contract with domain-owned vectors?  
+> If yes, it may belong under semantic-categorical-oracle authority, but never certificate acceptance.
