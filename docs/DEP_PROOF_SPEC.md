@@ -235,6 +235,16 @@ Two modes are permitted:
 
 The second is the default.
 
+### WF-6 — closure operands
+
+The first mechanized `star` form is restricted to a **closure-eligible prerequisite fragment**:
+
+- required prerequisite atoms;
+- conjunction;
+- compatible tensor composition where its prerequisite edges are interpreted conjunctively.
+
+`∨`, `seq`, symbolic binders, and rich obligations are not silently flattened under `star`. A later extension may admit them only after defining a control-aware required-edge relation and proving that its closure semantics preserves the corresponding control structure.
+
 ## 6. Atomic prerequisite satisfaction
 
 For:
@@ -290,11 +300,11 @@ StageResult(S,Γ,D) :=
     proof    : Proof(Sat(S,Γ,D)),
     post     : SchemeState,
     evidence : EvidenceCtx,
-    refines  : Refines(S, post, evidence)
+    refines  : Refines(S, Γ, post, evidence)
   }
 ```
 
-The domain defines `Refines`: it records which state/evidence changes the stage is permitted to produce.
+The domain defines `Refines(inputState,inputEvidence,outputState,outputEvidence)`: it proves that the output state/context is an authorized refinement produced from the particular input state/context. The relation must preserve the provenance link to `Γ`; an arbitrary evidence context cannot be substituted merely because it validates the next stage.
 
 Sequential satisfaction is:
 
@@ -344,7 +354,27 @@ SatStarReq(S,E)
     → (def(S,b) → def(S,a))
 ```
 
-This orientation is normative.
+For a well-formed closure operand `D`, define its active required relation at the current state/context:
+
+```text
+ReqRelation(S,Γ,D)(a,b)
+  :=
+  ∃c.
+    required ReqAtom(a,b,req,c) occurs in D
+    ∧ evalProp(S,Γ,c)
+```
+
+with structural union over the closure-eligible conjunctive fragment.
+
+The `star` constructor therefore has an explicit target proposition:
+
+```text
+Sat(S,Γ,star D)
+  :=
+  SatStarReq(S, ReqRelation(S,Γ,D))
+```
+
+This orientation and connection from `star D` to its control-local relation are normative.
 
 ## 10. P0 analysis normalization
 
@@ -492,7 +522,7 @@ forall(τ, λx. CompilePlan(D(x)), assemble)
 
 ### Star
 
-A `star` node uses a closure proof assembled from the control-local required-edge obligations applicable to that region. It is not replaced by an untyped modal proposition.
+A `star D` node targets the declared proposition `SatStarReq(S, ReqRelation(S,Γ,D))` and uses a closure proof assembled from the active control-local required-edge obligations of its closure-eligible operand. It is not replaced by an untyped modal proposition.
 
 ## 14. Plan normalization
 
@@ -948,11 +978,13 @@ subject to the constructor-specific preorder rules.
 
 **T9 — reverse definedness propagation transitivity.**
 
-If `Reach(a,b)` and `Reach(b,c)`, then a closure proof yields:
+If `Reach(a,b)` and `Reach(b,c)`, then the closure proof composes the two reverse implications internally and yields:
 
 ```text
-def(c) → def(b) → def(a)
+def(c) → def(a)
 ```
+
+The intermediate `def(b)` is derived from `def(c)`; it is not an additional caller-supplied premise.
 
 **T10 — closure idempotence.**
 
