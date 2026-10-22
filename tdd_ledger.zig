@@ -1,8 +1,8 @@
 const std = @import("std");
 
 // SQLite's C ABI is stable and this ledger uses only this fixed subset.
-// Zig 0.17 removed @cImport; keep the existing -lsqlite3 linkage while
-// declaring the consumed ABI explicitly.
+// Zig 0.17 removed the built-in C translation form used previously; keep
+// the existing -lsqlite3 linkage while declaring the consumed ABI explicitly.
 const c = struct {
     pub const sqlite3 = opaque {};
     pub const sqlite3_stmt = opaque {};
