@@ -698,7 +698,12 @@ Tensor is therefore not encoded as conjunction in the plan type.
 ### Disjunction
 
 ```text
-choose(CompilePlan(D1), CompilePlan(D2), ...)
+choose(
+  CompilePlan(S,Γ,D1),
+  CompilePlan(S,Γ,D2),
+  injectLeft,
+  injectRight
+)
 ```
 
 No compiler heuristic commits to a branch.
@@ -766,7 +771,7 @@ Forbidden without a theorem:
 
 `RunPlan` lowers an indexed `VCPlan(S,Γ,D)` to either `Solved(StageResult(S,Γ,D))` or a structured graph whose continuations preserve that same goal index.
 
-A proposition node records:
+A proposition node records the parent goal indices as part of its continuation type:
 
 ```text
 VCNode:
@@ -776,7 +781,7 @@ VCNode:
   prop
   class ∈ {checkable, uncheckable, unknownYet}
   deps
-  onProved : Proof(prop) → Continuation
+  onProved : Proof(prop) → Continuation(S,Γ,D)
 ```
 
 Control nodes:
@@ -824,9 +829,18 @@ Verify :
   | unsat(counterexample)
   | unknown(explanation)
 
-Plan : Prop → VCPlan
+manual : Prop → RichObligation
+RichSat(S,Γ,manual φ) := φ
+
+Plan :
+  (S : SchemeState)
+  → (Γ : EvidenceCtx)
+  → (φ : Prop)
+  → VCPlan(S,Γ,rich(manual φ))
 ```
 
+`Plan` is the explicit manual/uncheckable bridge: it preserves the exact
+proposition as a rich obligation rather than returning an unindexed plan.
 `unknown` yields no proof.
 
 ### 17.1 Environment grounding
@@ -917,7 +931,7 @@ Thus activating a guard for analysis never silently manufactures the
 Then:
 
 ```text
-AnalysisNF1(D,Ev)
+AnalysisNF1(S,Γ,D,Ev)
   := canon(TC_on_nodes(active required edges, Nodes(D)))
 ```
 
@@ -926,7 +940,7 @@ Guard evidence growth is monotone:
 ```text
 Ev ⊆ Ev'
 ⇒
-AnalysisNF1(D,Ev) ⊆ AnalysisNF1(D,Ev')
+AnalysisNF1(S,Γ,D,Ev) ⊆ AnalysisNF1(S,Γ,D,Ev')
 ```
 
 If syntactic-top guards are always active, every P0 edge is a P1 edge.
@@ -1285,7 +1299,7 @@ satisfaction proof.
 
 ```text
 Ev ⊆ Ev'
-⇒ AnalysisNF1(D,Ev) ⊆ AnalysisNF1(D,Ev')
+⇒ AnalysisNF1(S,Γ,D,Ev) ⊆ AnalysisNF1(S,Γ,D,Ev')
 ```
 
 ### Compiler/interpreter
@@ -1446,7 +1460,8 @@ A first conforming slice must prove by tests and/or mechanization that:
 15. tensor compilation returns `VCPlan(S,Γ,D1 ⊗ D2)` through a tensor-specific assembler, never through the conjunction result type;
 16. a non-reflexive two-stage sequence can construct `StageResult(S,Γ,seq(D1,k))` only through a stage-indexed sequential refinement composition such as `RefinesStage.seq`;
 17. P1 guard activation must supply `ActiveSound` evidence for the same `evalProp` used by `SatReq`;
-18. the initial universal-binder implementation is proof-only/reflexive, or else supplies an explicit coherent `ForallStages` assembler.
+18. the initial universal-binder implementation is proof-only/reflexive, or else supplies an explicit coherent `ForallStages` assembler;
+19. manual/uncheckable propositions enter through `rich(manual φ)`, so `Plan` remains indexed by the exact `(S,Γ,D)` goal rather than producing an untyped `VCPlan`.
 
 ## 35. Non-goals
 
