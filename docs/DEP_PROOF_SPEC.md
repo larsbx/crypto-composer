@@ -440,9 +440,24 @@ results. A later stateful universal must define a different `ForallCompat`
 predicate and supply its own coherence theorem and `RefinesStage` proof.
 
 Sequential composition has a distinct normative law because the second stage
-starts from the first stage's output:
+starts from the first stage's output. The proof constructor must retain the
+**complete** first-stage result, because that result is the first witness of
+the dependent pair defining sequential satisfaction:
 
 ```text
+seqProof(
+  r1 : StageResult(S,Γ,D1),
+  p2 : Proof(
+    Sat(
+      r1.post,
+      bindStageResult(Γ,k.var,r1),
+      instantiateStage(k,r1)
+    )
+  )
+) :=
+  ⟨r1, p2⟩
+  : Proof(Sat(S,Γ,seq(D1,k)))
+
 RefinesStage.seq :
   (r1 : StageResult(S,Γ,D1))
   → (r2 : StageResult(
@@ -454,14 +469,14 @@ RefinesStage.seq :
         S,
         Γ,
         seq(D1,k),
-        seqProof(r1.proof,r2.proof),
+        seqProof(r1,r2.proof),
         r2.post,
         r2.evidence
       )
 
 composeSeqStage(r1,r2) :=
   StageResult {
-    proof    = seqProof(r1.proof,r2.proof),
+    proof    = seqProof(r1,r2.proof),
     post     = r2.post,
     evidence = r2.evidence,
     refines  = RefinesStage.seq(r1,r2)
