@@ -15,8 +15,18 @@ const c = struct {
     pub const SQLITE_OPEN_READWRITE: c_int = 0x00000002;
     pub const SQLITE_OPEN_CREATE: c_int = 0x00000004;
 
-    // SQLite defines SQLITE_TRANSIENT as the all-bits-one destructor pointer.
-    pub const SQLITE_TRANSIENT: *const anyopaque = @ptrFromInt(std.math.maxInt(usize));
+    pub const ExecCallback = *const fn (
+        ?*anyopaque,
+        c_int,
+        [*c][*c]u8,
+        [*c][*c]u8,
+    ) callconv(.c) c_int;
+    pub const Destructor = *const fn (?*anyopaque) callconv(.c) void;
+    pub const sqlite3_destructor_type = ?Destructor;
+
+    // SQLite defines SQLITE_TRANSIENT as ((sqlite3_destructor_type)-1).
+    pub const SQLITE_TRANSIENT: sqlite3_destructor_type =
+        @as(Destructor, @ptrFromInt(std.math.maxInt(usize)));
 
     pub extern fn sqlite3_open_v2(
         filename: [*:0]const u8,
@@ -28,9 +38,9 @@ const c = struct {
     pub extern fn sqlite3_exec(
         db: *sqlite3,
         sql: [*:0]const u8,
-        callback: ?*const anyopaque,
+        callback: ?ExecCallback,
         callback_arg: ?*anyopaque,
-        error_message: ?*?[*:0]u8,
+        error_message: ?*[*c]u8,
     ) c_int;
     pub extern fn sqlite3_errmsg(db: *sqlite3) [*:0]const u8;
     pub extern fn sqlite3_prepare_v2(
@@ -47,7 +57,7 @@ const c = struct {
         index: c_int,
         text: [*]const u8,
         text_len: c_int,
-        destructor: ?*const anyopaque,
+        destructor: sqlite3_destructor_type,
     ) c_int;
     pub extern fn sqlite3_bind_int64(stmt: *sqlite3_stmt, index: c_int, value: i64) c_int;
     pub extern fn sqlite3_bind_int(stmt: *sqlite3_stmt, index: c_int, value: c_int) c_int;
