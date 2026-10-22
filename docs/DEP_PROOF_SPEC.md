@@ -982,8 +982,6 @@ version, and tool binary hash.
 
 ### 17.3 Instantiation/readiness
 
-### 17.3 Instantiation/readiness
-
 `VCInst(e)` is a kernel lookup, not an SMT query.
 
 A derived `VCElemReady(e)` may summarize:
