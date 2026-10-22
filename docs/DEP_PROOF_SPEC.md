@@ -115,18 +115,21 @@ This direction may match the premise → conclusion direction of the generic typ
 ### 2.3 Dependency specifications
 
 ```text
+StageVar
+BinderVar
+
 DepSpec :=
 | req   : ReqAtom → DepSpec
 | rich  : RichObligation → DepSpec
 | and   : DepSpec → DepSpec → DepSpec       -- ∧
 | or    : DepSpec → DepSpec → DepSpec       -- ∨
 | tens  : DepSpec → DepSpec → DepSpec       -- ⊗
-| seq   : DepSpec → (StageResult → DepSpec) → DepSpec
-| all   : Binder → (BinderValue → DepSpec) → DepSpec
+| seq   : DepSpec → (StageVar → DepSpec) → DepSpec
+| all   : Binder → (BinderVar → DepSpec) → DepSpec
 | star  : DepSpec → DepSpec
 ```
 
-The dependent forms are shown extensionally. A concrete implementation may use de Bruijn indices, named binders, an AST plus substitution, or another canonical representation.
+`StageVar` and `BinderVar` are **syntactic binders**, not semantic proof/state values. The semantics supplies substitutions/environments that map them to concrete stage results or binder values. A concrete implementation may use de Bruijn indices, named binders, a locally nameless representation, HOAS over abstract syntax variables, or another canonical binder representation. The syntax therefore does not depend circularly on `StageResult`, which is defined only at the semantic layer.
 
 `CondDeps(c) : Finset Elem` returns all syntactic element references in a guard.
 
@@ -306,14 +309,35 @@ StageResult(S,Γ,D) :=
 
 The domain defines `Refines(inputState,inputEvidence,outputState,outputEvidence)`: it proves that the output state/context is an authorized refinement produced from the particular input state/context. The relation must preserve the provenance link to `Γ`; an arbitrary evidence context cannot be substituted merely because it validates the next stage.
 
+For obligations that prove a fact without changing state or evidence, define a reflexive constructor:
+
+```text
+pureStage(S,Γ,π : Proof(Sat(S,Γ,D)))
+  :=
+  StageResult {
+    proof    = π,
+    post     = S,
+    evidence = Γ,
+    refines  = Refines.refl(S,Γ)
+  }
+```
+
+This is the bridge used by atomic/kernel proof obligations; it prevents a bare proof term from being mistaken for a full stage transition.
+
 Sequential satisfaction is:
 
 ```text
 Sat(S,Γ, seq(D1,k))
   :=
   Σ(r1 : StageResult(S,Γ,D1)).
-    Sat(r1.post, r1.evidence, k(r1))
+    Sat(
+      r1.post,
+      bindStageResult(Γ, k.var, r1),
+      instantiateStage(k, r1)
+    )
 ```
+
+where `bindStageResult` extends the semantic environment with the concrete result bound to the syntax-level `StageVar`, and `instantiateStage` performs the corresponding capture-avoiding syntax substitution (or its chosen binder-representation equivalent).
 
 This is genuinely dependent. The second component may depend on:
 
@@ -434,7 +458,9 @@ An unconditional required atom becomes a proof obligation:
 ```text
 need(
   VCedge(S,(a,b)),
-  λp. done(pack_req_sat(p))
+  λp. done(
+    pureStage(S,Γ,pack_req_sat(p))
+  )
 )
 ```
 
@@ -483,9 +509,9 @@ Compilation is structural and deterministic.
 
 ### Required atoms
 
-- unconditional required atom: emit a `need(VCedge,...)`;
-- guarded required atom: emit the guarded proposition directly, or under P1 require guard-activation evidence first;
-- optional/trivial: no mandatory proof.
+- unconditional required atom: emit a `need(VCedge,...)` whose continuation constructs `pureStage(..., pack_req_sat(p))`;
+- guarded required atom: emit the guarded proposition directly, or under P1 require guard-activation evidence first, then construct a `pureStage` once proved;
+- optional/trivial: construct the corresponding reflexive/pure stage with the trivial proof.
 
 ### Conjunction / tensor
 
@@ -504,7 +530,12 @@ No compiler heuristic commits to a branch.
 ```text
 seq(
   CompilePlan(D1),
-  λr1. CompilePlanAt(r1.post, r1.evidence, k(r1))
+  λr1.
+    CompilePlanAt(
+      r1.post,
+      bindStageResult(Γ, k.var, r1),
+      instantiateStage(k, r1)
+    )
 )
 ```
 
@@ -1166,9 +1197,9 @@ A first conforming slice must prove by tests and/or mechanization that:
 
 1. `a ⊸ b` rejects a state where `b` is defined and `a` is not;
 2. the same relation does not reject merely because `a` exists without `b`;
-3. sequencing stage two can depend on a stage-one post-state/evidence value;
+3. sequencing syntax binds an abstract `StageVar`, and stage two can depend on the concrete stage-one post-state/evidence only through capture-avoiding semantic instantiation;
 4. replacing the sequence with a product fails a negative test;
-5. every unconditional kernel atom in a final proof has a proof-consuming plan node;
+5. every unconditional kernel atom in a final proof has a proof-consuming plan node whose continuation constructs a reflexive `pureStage`, not a bare proof masquerading as a stage result;
 6. branch-local obligations cannot be satisfied by mixing evidence from two `choose` branches;
 7. `AnalysisNF0` is deterministic;
 8. global analysis normalization is not used as a mandatory disjunction proof gate;
