@@ -1,7 +1,64 @@
 const std = @import("std");
-const c = @cImport({
-    @cInclude("sqlite3.h");
-});
+
+// SQLite's C ABI is stable and this ledger uses only this fixed subset.
+// Zig 0.17 removed @cImport; keep the existing -lsqlite3 linkage while
+// declaring the consumed ABI explicitly.
+const c = struct {
+    pub const sqlite3 = opaque {};
+    pub const sqlite3_stmt = opaque {};
+
+    pub const SQLITE_OK: c_int = 0;
+    pub const SQLITE_ROW: c_int = 100;
+    pub const SQLITE_DONE: c_int = 101;
+    pub const SQLITE_NULL: c_int = 5;
+
+    pub const SQLITE_OPEN_READWRITE: c_int = 0x00000002;
+    pub const SQLITE_OPEN_CREATE: c_int = 0x00000004;
+
+    // SQLite defines SQLITE_TRANSIENT as the all-bits-one destructor pointer.
+    pub const SQLITE_TRANSIENT: *const anyopaque = @ptrFromInt(std.math.maxInt(usize));
+
+    pub extern fn sqlite3_open_v2(
+        filename: [*:0]const u8,
+        db: *?*sqlite3,
+        flags: c_int,
+        vfs: ?[*:0]const u8,
+    ) c_int;
+    pub extern fn sqlite3_close(db: *sqlite3) c_int;
+    pub extern fn sqlite3_exec(
+        db: *sqlite3,
+        sql: [*:0]const u8,
+        callback: ?*const anyopaque,
+        callback_arg: ?*anyopaque,
+        error_message: ?*?[*:0]u8,
+    ) c_int;
+    pub extern fn sqlite3_errmsg(db: *sqlite3) [*:0]const u8;
+    pub extern fn sqlite3_prepare_v2(
+        db: *sqlite3,
+        sql: [*]const u8,
+        sql_len: c_int,
+        stmt: *?*sqlite3_stmt,
+        tail: ?*?[*:0]const u8,
+    ) c_int;
+    pub extern fn sqlite3_finalize(stmt: *sqlite3_stmt) c_int;
+    pub extern fn sqlite3_step(stmt: *sqlite3_stmt) c_int;
+    pub extern fn sqlite3_bind_text(
+        stmt: *sqlite3_stmt,
+        index: c_int,
+        text: [*]const u8,
+        text_len: c_int,
+        destructor: ?*const anyopaque,
+    ) c_int;
+    pub extern fn sqlite3_bind_int64(stmt: *sqlite3_stmt, index: c_int, value: i64) c_int;
+    pub extern fn sqlite3_bind_int(stmt: *sqlite3_stmt, index: c_int, value: c_int) c_int;
+    pub extern fn sqlite3_bind_null(stmt: *sqlite3_stmt, index: c_int) c_int;
+    pub extern fn sqlite3_column_int64(stmt: *sqlite3_stmt, index: c_int) i64;
+    pub extern fn sqlite3_column_int(stmt: *sqlite3_stmt, index: c_int) c_int;
+    pub extern fn sqlite3_column_type(stmt: *sqlite3_stmt, index: c_int) c_int;
+    pub extern fn sqlite3_column_text(stmt: *sqlite3_stmt, index: c_int) ?[*]const u8;
+    pub extern fn sqlite3_column_bytes(stmt: *sqlite3_stmt, index: c_int) c_int;
+    pub extern fn sqlite3_last_insert_rowid(db: *sqlite3) i64;
+};
 
 pub const Status = enum { red, green };
 
