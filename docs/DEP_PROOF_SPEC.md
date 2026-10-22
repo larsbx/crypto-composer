@@ -497,8 +497,13 @@ forall(τ,f,assemble)
 
 seq(p,q)
   where
-    p : VCPlan(D1)
-    q : StageResult(D1) → VCPlan(k(result))
+    p : VCPlan(S,Γ,D1)
+    q : (r1 : StageResult(S,Γ,D1))
+        → VCPlan(
+            r1.post,
+            bindStageResult(Γ, k.var, r1),
+            instantiateStage(k, r1)
+          )
 ```
 
 The control structure is semantic, not scheduling decoration.
@@ -1017,7 +1022,7 @@ def(c) → def(a)
 
 The intermediate `def(b)` is derived from `def(c)`; it is not an additional caller-supplied premise.
 
-**T10 — closure idempotence.**
+**T10 — relation-level closure idempotence.** Taking reflexive-transitive closure twice yields the same reachability relation; no claim is made that a syntactically nested `star(star D)` is well-formed under WF-6.
 
 **T11 — every one-step required edge is represented in closure.**
 
