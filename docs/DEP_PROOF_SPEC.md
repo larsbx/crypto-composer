@@ -367,6 +367,67 @@ pureStage(S,Γ,π : Proof(Sat(S,Γ,D)))
 
 This is the bridge used by atomic/kernel proof obligations; it prevents a bare proof term from being mistaken for a full stage transition.
 
+Stage-result constructors that change only the logical index must carry the
+corresponding proof constructor and a `RefinesStage` reindexing proof. The
+minimal library includes:
+
+```text
+mapStageSpec :
+  (Proof(Sat(S,Γ,D)) → Proof(Sat(S,Γ,D')))
+  → StageResult(S,Γ,D)
+  → StageResult(S,Γ,D')
+```
+
+when the mapping preserves the same post-state/evidence transition and the
+domain supplies the corresponding `RefinesStage.mapSpec` proof.
+
+For two branches begun at the same input, conjunction and tensor require
+explicit compatible merge laws rather than assuming that independently
+produced post-states can be combined:
+
+```text
+MergeStages(S,Γ,D1,D2,target) :=
+  (r1 : StageResult(S,Γ,D1))
+  → (r2 : StageResult(S,Γ,D2))
+  → StageResult(S,Γ,target)
+```
+
+A merge implementation must prove that its final post-state/evidence is a
+valid `RefinesStage` transition for the target specification.
+
+Sequential composition has a distinct normative law because the second stage
+starts from the first stage's output:
+
+```text
+RefinesStage.seq :
+  (r1 : StageResult(S,Γ,D1))
+  → (r2 : StageResult(
+        r1.post,
+        bindStageResult(Γ,k.var,r1),
+        instantiateStage(k,r1)
+      ))
+  → RefinesStage(
+        S,
+        Γ,
+        seq(D1,k),
+        seqProof(r1.proof,r2.proof),
+        r2.post,
+        r2.evidence
+      )
+
+composeSeqStage(r1,r2) :=
+  StageResult {
+    proof    = seqProof(r1.proof,r2.proof),
+    post     = r2.post,
+    evidence = r2.evidence,
+    refines  = RefinesStage.seq(r1,r2)
+  }
+```
+
+Thus a non-reflexive second-stage transition is justified all the way from the
+original sequence input; no transition proof is silently reset at the stage
+boundary.
+
 Sequential satisfaction is:
 
 ```text
@@ -532,11 +593,13 @@ done(r)
 need(φ, k)
   where k : Proof(φ) → VCPlan(S,Γ,D)
 
-both(p,q,combine)
-  where combine :
-    StageResult(S,Γ,D1)
-    → StageResult(S,Γ,D2)
-    → StageResult(S,Γ,D1 ∧ D2)
+both(p,q,combineAnd)
+  where combineAnd :
+    MergeStages(S,Γ,D1,D2,D1 ∧ D2)
+
+tensor(p,q,combineTensor)
+  where combineTensor :
+    MergeStages(S,Γ,D1,D2,D1 ⊗ D2)
 
 choose(p,q,injectLeft,injectRight)
   where injectLeft  : StageResult(S,Γ,D1) → StageResult(S,Γ,D1 ∨ D2)
@@ -547,7 +610,7 @@ forall(τ,f,assemble)
         assemble : (Πx. StageResult(S,Γ+x,D(x)))
                    → StageResult(S,Γ,∀x:τ.D(x))
 
-seq(p,q)
+seq(p,q,assembleSeq)
   where
     p : VCPlan(S,Γ,D1)
     q : (r1 : StageResult(S,Γ,D1))
@@ -556,10 +619,19 @@ seq(p,q)
             bindStageResult(Γ, k.var, r1),
             instantiateStage(k, r1)
           )
+    assembleSeq :
+      (r1 : StageResult(S,Γ,D1))
+      → (r2 : StageResult(
+            r1.post,
+            bindStageResult(Γ,k.var,r1),
+            instantiateStage(k,r1)
+          ))
+      → StageResult(S,Γ,seq(D1,k))
 
-The result index of `seq(p,q)` is the same dependent sequential goal
-`seq(D1,k)` interpreted at `(S,Γ)`. In particular, `q` cannot return a
-result for an unrelated specification or context.
+For the canonical sequence constructor, `assembleSeq = composeSeqStage`.
+The result index is the same dependent sequential goal `seq(D1,k)`
+interpreted at `(S,Γ)`; neither `q` nor the assembler may return a result
+for an unrelated specification or context.
 ```
 
 The control structure is semantic, not scheduling decoration.
@@ -583,9 +655,26 @@ CompilePlan(S,Γ,rich o) := CompileRich(S,Γ,o)
 The returned plan must reconstruct `Proof(RichSat(S,Γ,o))` on success; there
 is no generic “rich obligation accepted” shortcut.
 
-### Conjunction / tensor
+### Conjunction
 
-Compile both and combine their stage results according to the domain's compatible post-state/evidence merge rule.
+Compile both under the same input and use the declared `combineAnd :
+MergeStages(S,Γ,D1,D2,D1 ∧ D2)`. No implicit post-state merge is permitted.
+
+### Tensor
+
+Compile both under the same input with the dedicated tensor constructor:
+
+```text
+tensor(
+  CompilePlan(S,Γ,D1),
+  CompilePlan(S,Γ,D2),
+  combineTensor
+)
+```
+
+where `combineTensor : MergeStages(S,Γ,D1,D2,D1 ⊗ D2)` exists only when
+WF-4's footprint/interference discipline proves the results are compatible.
+Tensor is therefore not encoded as conjunction in the plan type.
 
 ### Disjunction
 
@@ -599,13 +688,14 @@ No compiler heuristic commits to a branch.
 
 ```text
 seq(
-  CompilePlan(D1),
+  CompilePlan(S,Γ,D1),
   λr1.
     CompilePlanAt(
       r1.post,
       bindStageResult(Γ, k.var, r1),
       instantiateStage(k, r1)
-    )
+    ),
+  composeSeqStage
 )
 ```
 
@@ -683,10 +773,11 @@ Behavior:
 
 - `done` returns solved;
 - `need` emits one obligation with continuation;
-- `both` compiles both allowed sides and joins only when both results exist;
+- `both` compiles both conjunction sides and applies `combineAnd` only when both results exist;
+- `tensor` compiles both compatible tensor sides and applies `combineTensor` only when both results exist;
 - `choose` preserves branch separation;
 - `forall` expands or preserves a gate;
-- `seq` compiles stage one first and opens stage two only after receiving its `StageResult`.
+- `seq` compiles stage one first, opens stage two only after receiving its `StageResult`, and returns solved only after `assembleSeq` (canonically `composeSeqStage`) constructs a `StageResult` for the whole sequence.
 
 ## 17. Prop / CProp / verification
 
@@ -1134,7 +1225,13 @@ Ev ⊆ Ev'
 
 **C1 — obligation preservation.** Every atomic obligation needed by the final `Sat` proof has a proof-consuming path in the compiled plan.
 
-**C2 — control preservation.** Compilation preserves branch separation, sequencing gates, and binder context.
+**C2 — control preservation.** Compilation preserves branch separation, distinct conjunction/tensor result indices, sequencing gates, and binder context.
+
+**C3 — stage assembly soundness.** Every constructor that combines child
+results supplies an explicit assembler whose output is indexed by the parent
+specification and carries a valid `RefinesStage` proof from the parent's
+original input. In particular, sequential assembly is justified by
+`RefinesStage.seq`.
 
 **E1 — solved soundness.** If `RunPlan(S,Γ,D,plan) = Solved(r)`, then `r : StageResult(S,Γ,D)` and therefore `r.proof : Proof(Sat(S,Γ,D))`.
 
@@ -1278,7 +1375,9 @@ A first conforming slice must prove by tests and/or mechanization that:
 11. `unknown` never yields proof;
 12. an FMK proof-record closure does not automatically become a ProofCertificate;
 13. a structural oracle result never acquires certificate-acceptance authority;
-14. every `RichObligation` constructor has both a total `RichSat` interpretation and a `CompileRich` route, with a negative test proving that missing evidence cannot produce `done`.
+14. every `RichObligation` constructor has both a total `RichSat` interpretation and a `CompileRich` route, with a negative test proving that missing evidence cannot produce `done`;
+15. tensor compilation returns `VCPlan(S,Γ,D1 ⊗ D2)` through a tensor-specific assembler, never through the conjunction result type;
+16. a non-reflexive two-stage sequence can construct `StageResult(S,Γ,seq(D1,k))` only through a stage-indexed sequential refinement composition such as `RefinesStage.seq`.
 
 ## 35. Non-goals
 
