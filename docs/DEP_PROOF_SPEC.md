@@ -1,72 +1,71 @@
-# Dep–Proof: scheme-indexed dependency and proof calculus
+# Dep–Proof v2: scheme-indexed dependency and proof calculus
 
-**Status:** normative design specification for the next formal core of `larsbx/crypto-composer`.
+**Status:** corrected normative design specification for the planned formal core of `larsbx/crypto-composer`.
 
-**Scope:** this document specifies the dependency language, scheme-indexed semantics, normalization kernel, residual proof planning, obligation-graph interpreter, verification boundary, certificates, and metatheorem obligations. It does **not** claim that these components are already implemented.
+**Supersedes:** the September 19, 2026 draft on this branch.
 
-## 0. Purpose and architectural position
+**Scope:** dependency syntax, scheme-indexed semantics, well-formedness, normalization, proof-shaped VC planning, structured interpretation, verifier boundaries, evidence/certificate composition, and the interfaces to `finite-math-kernels` and `semantic-categorical-oracle`.
 
-Dep–Proof turns a dependency specification into an audit-ready proof and verification workflow.
+This document specifies intended semantics. It does **not** claim the implementation already exists.
 
-For a concrete scheme or scheme state `S` and dependency specification `D`, the system must produce:
+## 0. Purpose and authority
 
-1. a canonical unconditional dependency kernel,
-2. a proof-shaped residual obligation plan that preserves sequencing, branching, and binders,
-3. either a proof of scheme-specific satisfaction or a structured graph of outstanding obligations,
-4. a certificate whose evidence, provenance, assumptions, models, and tool boundary are explicit.
+Dep–Proof turns a dependency specification into an auditable proof/verification workflow for a concrete cryptographic construction or scheme state.
 
-The core semantic object is:
+The domain authority remains `crypto-composer`:
+
+- it defines the dependency language;
+- it defines what `Sat` means;
+- it defines which evidence proves a cryptographic obligation;
+- it owns verifier adapters and certificate acceptance.
+
+Two other repositories may support it without acquiring that authority:
+
+- `larsbx/finite-math-kernels/kernel/proof_records/` owns generic evidence identity, provenance, dependency closure, and typed proof-record graph surfaces;
+- `larsbx/semantic-categorical-oracle` may own explicitly registered executable **structural semantic contracts** such as canonical normal forms or preservation of branching, binders, sequencing, and composition. It does not own mathematical proof or certificate acceptance.
+
+The high-level flow is:
 
 ```text
-Sat(S, D)
+DepSpec + SchemeState
+        │
+        ├── WF
+        │
+        ├── AnalysisNF0 / AnalysisNF1
+        │
+        └── CompilePlan
+               │
+               ▼
+            RunPlan
+               │
+               ├── Solved(Discharge)
+               └── Pending(VCGraph, Open)
+                                │
+                                ▼
+                        Extract / Verify / Plan
+                                │
+                                ▼
+              ProofCertificate or EvidenceBundle
 ```
 
-Dependencies therefore mean obligations **at a scheme/state**, not global claims about every possible implementation.
+## 1. Normative invariants
 
-The principal compilation spine is:
-
-```text
-DepSpec
-  │
-  ├── WF
-  │
-  ├── P0 kernel: ReqEdges0 → NF0 → VCList0
-  │
-  └── ResidualPlanNF
-          │
-          ▼
-       RunPlan
-          │
-          ├── Solved(Proof(Sat(S,D)))
-          └── Pending(VCGraph, Open)
-                         │
-                         ▼
-                 Extract / Verify / Plan
-                         │
-                         ▼
-                     Certificate
-```
-
-P1 refines P0 by admitting guarded dependency edges only after guard evidence is available.
-
-## 1. Design invariants
-
-The following are normative.
-
-1. **Scheme-indexed semantics.** `Sat(S,D)` is primitive. A dependency declaration is not itself a proposition and is never silently generalized to `∀S`.
-2. **Frozen arrow convention.** `a ⊸ b` means “`b` requires `a`” / “`b` depends on `a`”.
-3. **Non-collapsing sequencing.** `D1 ; D2` is interpreted by dependent sequencing (Σ/let), not conjunction.
-4. **Graph-theoretic closure.** `D*` means reachability over the selected required-edge relation.
-5. **No total Boolean verifier.** Full propositions and checkable propositions are distinct.
-6. **Declarations, satisfaction, and proofs are separate layers.**
-7. **Normalization is conservative.** P0 is deterministic and cacheable; it may over-generate kernel obligations but must not silently erase higher structure.
-8. **Residual structure is preserved.** `∨`, `∀`, and `;` are represented by structured plan/gate nodes, never flattened into a list.
-9. **Evidence is explicit.** Reductions, simulators, independence claims, leakage models, and bound side conditions require named evidence.
-10. **TCB is explicit.** A tool result becomes a proof only through a stated trusted checker or kernel rule.
+1. **Scheme-indexed semantics.** The meaning of a specification is an obligation at a concrete scheme/state, never an implicit `∀S` statement.
+2. **Frozen prerequisite arrow.** `a ⊸ b` means “`b` requires `a`”; `a` is the prerequisite and `b` is the dependent.
+3. **Requires is not derives.** Prerequisite availability and proof sufficiency are distinct relations and must never share one untyped edge interpretation.
+4. **True sequencing.** `D1 ; D2` must allow the second stage to depend on a post-state/evidence package produced by the first stage. A non-dependent pair is not sequencing.
+5. **Closure is graph-theoretic.** `*` is defined using reachability on a selected required-edge relation.
+6. **No total Boolean verifier.** Full propositions and checkable propositions are distinct; unknown never becomes proof.
+7. **Syntax, satisfaction, and evidence are separate layers.**
+8. **Analysis normalization is not proof hoisting.** A global conservative normal form may be used for caching/diffing/impact analysis, but branch-local obligations may not be hoisted across `∨`, `;`, or binders unless a preservation theorem justifies it.
+9. **Kernel evidence is never dropped.** Every obligation used to reconstruct `Sat` must have a proof-consuming path into the final discharge.
+10. **Evidence is explicit.** Reduction/simulator witnesses, composition laws, leakage models, assumptions, and bound side conditions are named artifacts.
+11. **TCB is explicit.** Tool output becomes proof only through a declared trusted checker/kernel bridge.
+12. **Authority is not promoted by translation.** Generic proof records or semantic-normalization oracles cannot by themselves establish cryptographic truth.
 
 ## 2. Core syntax
 
-Assume a finite syntactic support and decidable equality on elements.
+Assume decidable equality on element identifiers and finite syntactic support.
 
 ```text
 Elem
@@ -74,631 +73,628 @@ Sort : Elem → Type
 Kind(e) ∈ {slot, interface, prop}
 
 Weight := req | opt | triv
+Cond
+```
 
-Atom :=
-  (a : Elem)
-  (b : Elem)
-  (w : Weight)
-  (c : Cond)
+### 2.1 Prerequisite atoms
 
+The definedness dependency kernel uses:
+
+```text
+ReqAtom :=
+  (prerequisite : Elem)
+  (dependent    : Elem)
+  (weight       : Weight)
+  (guard        : Cond)
+```
+
+Notation:
+
+```text
+a ⊸ b
+```
+
+means `ReqAtom(a,b,req,⊤)`: **b requires a**.
+
+### 2.2 Derivation relations
+
+Proof sufficiency is represented separately:
+
+```text
+Derive :=
+  (premise    : ClaimRef)
+  (conclusion : ClaimRef)
+  (transform  : WitnessRef)
+  (model      : ReductionModel)
+```
+
+A `Derive` edge means that a named proof transformer may map evidence for the premise into evidence for the conclusion, subject to its model/side conditions.
+
+This direction may match the premise → conclusion direction of the generic typed proof graph in `finite-math-kernels`; it must not be confused with prerequisite availability.
+
+### 2.3 Dependency specifications
+
+```text
 DepSpec :=
-| atom  : Atom → DepSpec
+| req   : ReqAtom → DepSpec
+| rich  : RichObligation → DepSpec
 | and   : DepSpec → DepSpec → DepSpec       -- ∧
 | or    : DepSpec → DepSpec → DepSpec       -- ∨
 | tens  : DepSpec → DepSpec → DepSpec       -- ⊗
-| seq   : DepSpec → DepSpec → DepSpec       -- ;
-| all   : Binder → DepSpec → DepSpec        -- ∀
-| star  : DepSpec → DepSpec                  -- *
+| seq   : DepSpec → (StageResult → DepSpec) → DepSpec
+| all   : Binder → (BinderValue → DepSpec) → DepSpec
+| star  : DepSpec → DepSpec
 ```
 
-`CondDeps(c) : Finset Elem` returns all element names referenced syntactically by a condition.
+The dependent forms are shown extensionally. A concrete implementation may use de Bruijn indices, named binders, an AST plus substitution, or another canonical representation.
 
-Optional modalities, guards, richer contracts, and additional weights may be introduced as syntax sugar or extensions, but they must elaborate into the kernel without changing these invariants.
+`CondDeps(c) : Finset Elem` returns all syntactic element references in a guard.
 
-## 3. Scheme state and definedness
+## 3. Scheme state, evidence context, and definedness
 
-A scheme instance/state provides:
+A scheme state supplies:
 
 ```text
-inst_S : Elem → Option(Value(sort(e)))
-def_S(e) := inst_S(e) ≠ none
+SchemeState:
+  inst : Elem → Option(Value(sort(e)))
+  version : StateId
 ```
 
-A condition has proposition semantics:
+Definedness:
 
 ```text
-⟦c⟧_S : Prop
+def(S,e) := S.inst(e) ≠ none
 ```
 
-When a condition language is decidable, an implementation may also expose:
+Conditions have proposition semantics:
 
 ```text
-evalCond_S : Cond → Bool
+evalProp(S,Γ,c) : Prop
 ```
 
-with a trusted bridge theorem between `evalCond_S(c) = true` and `⟦c⟧_S`.
+where `Γ` is an evidence/binder context.
 
-Mandatory definedness/type lemmas:
+A decidable guard language may additionally expose:
 
 ```text
-def_of_inst  : inst_S(e) = some(v) → def_S(e)
-def_elim     : def_S(e) → ∃v, inst_S(e) = some(v)
-type_of_inst : inst_S(e) = some(v) → v : ⟦Sort(e)⟧
+evalCond : SchemeState × EvidenceCtx × Cond → Bool
 ```
 
-The implementation must also provide definitional equality/rewrite lemmas for sort interpretation.
+only with a trusted bridge theorem connecting `true` to `evalProp`.
 
-## 4. Three-layer dependency discipline
-
-The implementation must distinguish:
+Mandatory mechanization lemmas:
 
 ```text
-DeclDep(a,b,w,c)  -- syntax/data
-SatDep_S(d)       -- proposition that S satisfies declaration d
-Proof_S(d)        -- evidence inhabiting SatDep_S(d)
+def_of_inst  : inst(S,e) = some(v) → def(S,e)
+def_elim     : def(S,e) → ∃v, inst(S,e) = some(v)
+type_of_inst : inst(S,e) = some(v) → v : ⟦Sort(e)⟧
 ```
 
-A dependent scheme record may be presented as:
+## 4. Declaration / satisfaction / proof separation
+
+These are different objects:
 
 ```text
-Scheme(D) :=
-  Σ(values).
-  Π(d ∈ D). Proof(SatDep_S(d))
+DeclDep          -- syntax/data
+Sat(S,Γ,D)       -- proposition/type
+Proof(Sat(...))  -- evidence
 ```
 
-This separation is required to prevent dependency declarations, semantic claims, and evidence from being conflated.
+No declaration is itself a proof.
 
-## 5. Satisfaction semantics
+A proof record, test receipt, human attestation, or imported theorem is evidence **about** an obligation; it is not definitionally the proposition it supports.
 
-For a required atom `d = atom(a,b,req,c)`:
+## 5. Minimal well-formedness
 
-```text
-Sat(S,d) := (⟦ c⟧_S ∧ def_S(a)) ⇒ def_S(b).
-```
-
-Under the minimal kernel policy, optional and trivial atoms do not contribute mandatory satisfaction:
-
-```text
-Sat(S,atom(_,_,opt,_)) := ⊤,
-qquad
-Sat(S,atom(_,_,triv,_)) := ⊤.
-```
-
-Compound semantics:
-
-```text
-Sat(S,D_1 ∧ D_2) := Sat(S,D_1)∧ Sat(S,D_2),
-```
-
-```text
-Sat(S,D_1 ⊗ D_2) := Sat(S,D_1)× Sat(S,D_2),
-```
-
-```text
-Sat(S,D_1 ∨ D_2) := Sat(S,D_1)∨ Sat(S,D_2),
-```
-
-```text
-Sat(S,∀ x{:}τ.D(x)) := Π(x{:}τ).Sat(S,D(x)).
-```
-
-### 5.1 Sequential composition
-
-Sequential composition is evidence-sensitive:
-
-```text
-Sat(S,D_1;D_2)
-:=
-Σ(pi_1:Sat(S,D_1)).Sat(S,D_2).
-```
-
-Operationally, an implementation may use state threading `S → S'`; however, the logical presentation must preserve the same evidence dependency.
-
-The semantics must **not** be replaced by:
-
-```text
-Sat(S,D1) ∧ Sat(S,D2)
-```
-
-or by `φ1 ∧ (φ1 → φ2)`, both of which erase the evidence-sensitive sequencing discipline.
-
-## 6. Reachability and closure
-
-For an edge relation `E : Elem → Elem → Prop`:
-
-```text
-Reach(E) : Elem → Elem → Prop
-| refl  : Reach E a a
-| step  : E a b → Reach E a b
-| trans : Reach E a b → Reach E b c → Reach E a c
-```
-
-Closure is a graph-level concept.
-
-For the selected edge relation `Edge_D`:
-
-```text
-SatStar(S,Edge_D)
-:=
-∀ a,b. Reach(Edge_D)(a,b)
-⇒ (def_S(a)⇒ def_S(b)).
-```
-
-`Sat(S,D*)` is defined through this reachability semantics, not through an unspecified logical fixed-point modality.
-
-## 7. Minimal well-formedness kernel
-
-`WF(D)` is syntactic hygiene. It must not smuggle substantive security/correctness claims into well-formedness.
+`WF(D)` is static hygiene. It must not decide substantive security claims.
 
 ### WF-1 — finite support
 
-`Nodes(D) : Finset Elem` structurally collects:
+`Nodes(D)` structurally collects:
 
-- every atom endpoint,
-- every element in `CondDeps(c)`,
-- the finite syntactic support of binder bodies.
+- every prerequisite/dependent endpoint;
+- every element in `CondDeps`;
+- the finite syntactic support of rich obligations and binders.
 
-`WF(D)` guarantees that this support is finite and stable under α-renaming.
+It is finite and α-stable.
 
-### WF-2 — lightweight kind sanity
+### WF-2 — kind/sort sanity
 
-Definedness propagation itself is sort-agnostic, but richer contracts must be kind-compatible. The minimal kind set is:
-
-```text
-{slot, interface, prop}
-```
-
-Value-level or interface-level obligations may add more precise contract typing later.
+Definedness dependencies may connect any element kinds that the domain permits, but richer contracts must check their declared input/output kinds.
 
 ### WF-3 — guard hygiene
 
-The first implementation uses the explicit/non-stratified policy:
+Initial mode:
 
-- guards may mention arbitrary syntactic elements,
-- P0 ignores non-top guards,
-- guarded dependencies remain residual obligations,
-- P1 may activate them when evidence is supplied.
+- arbitrary syntactic guard dependencies are permitted;
+- non-top guards are not inserted into P0;
+- guarded obligations remain proof-plan obligations unless P1 activation supplies evidence.
 
-A future stratified-guard mode may require condition dependencies to be available in an earlier sequencing stratum.
-
-### WF-4 — parallel footprint discipline
+### WF-4 — tensor footprint discipline
 
 Define:
 
 ```text
-Foot(D) : Finset Elem
+Foot(D) : Finset Resource
 ```
 
-For `D1 ⊗ D2` require:
+For strict parallel composition:
 
 ```text
-Foot(D_1)∩ Foot(D_2)=∅.
+WF(D1 ⊗ D2) ⇒ Foot(D1) ∩ Foot(D2) = ∅
 ```
 
-Any later relaxation must make ownership, sharing, or interference explicit.
+Any permitted sharing must be explicit in a richer interference model.
 
-### WF-5 — binder discipline
+### WF-5 — binders
 
 Two modes are permitted:
 
-- **finite expansion:** `∀x:τ` only when `τ` is finite/enumerable;
-- **binder residual:** the kernel does not expand the binder and the quantified obligation remains in the residual plan.
+- finite enumerable binder expansion;
+- symbolic binder preservation.
 
-The second mode is the default first implementation.
+The second is the default.
 
-## 8. P0 kernel normalization
+## 6. Atomic prerequisite satisfaction
 
-P0 extracts a deterministic, unconditional, conservative dependency kernel.
-
-### 8.1 Required-edge extraction
+For:
 
 ```text
-ReqEdges0(atom(a,b,req,c))
+d = ReqAtom(a,b,req,c)
+```
+
+with `a` prerequisite and `b` dependent:
+
+```text
+SatReq(S,Γ,d)
+  :=
+  (evalProp(S,Γ,c) ∧ def(S,b))
+  ⇒ def(S,a)
+```
+
+This is the frozen arrow convention made semantic: if the dependent is present and the guard is active, the prerequisite must be present.
+
+Optional/trivial atoms do not create mandatory satisfaction in the minimal kernel:
+
+```text
+SatReq(S,Γ,ReqAtom(_,_,opt,_))  := ⊤
+SatReq(S,Γ,ReqAtom(_,_,triv,_)) := ⊤
+```
+
+## 7. Compound satisfaction
+
+For non-sequential constructors:
+
+```text
+Sat(S,Γ,D1 ∧ D2) := Sat(S,Γ,D1) × Sat(S,Γ,D2)
+
+Sat(S,Γ,D1 ⊗ D2) := Sat(S,Γ,D1) × Sat(S,Γ,D2)
+  subject to WF tensor compatibility
+
+Sat(S,Γ,D1 ∨ D2) := Sat(S,Γ,D1) + Sat(S,Γ,D2)
+
+Sat(S,Γ,∀x:τ.D(x)) := Π(x:τ). Sat(S,Γ+x,D(x))
+```
+
+Here `×` is evidence product and `+` is tagged evidence sum.
+
+## 8. True sequential composition
+
+A sequence stage produces more than a proof token.
+
+Define:
+
+```text
+StageResult(S,Γ,D) :=
+  {
+    proof    : Proof(Sat(S,Γ,D)),
+    post     : SchemeState,
+    evidence : EvidenceCtx,
+    refines  : Refines(S, post, evidence)
+  }
+```
+
+The domain defines `Refines`: it records which state/evidence changes the stage is permitted to produce.
+
+Sequential satisfaction is:
+
+```text
+Sat(S,Γ, seq(D1,k))
+  :=
+  Σ(r1 : StageResult(S,Γ,D1)).
+    Sat(r1.post, r1.evidence, k(r1))
+```
+
+This is genuinely dependent. The second component may depend on:
+
+- the post-state;
+- witnesses/evidence produced by stage one;
+- the actual tagged branch/result encoded in `r1`.
+
+A plain conjunction or non-dependent product cannot in general construct this type.
+
+Operational implementations may use explicit state threading instead of exposing a dependent pair, provided the semantics are equivalent.
+
+## 9. Reachability and prerequisite closure
+
+The syntactic required-edge relation is stored in arrow direction:
+
+```text
+EdgeReq_D(a,b)
+```
+
+means `a ⊸ b`: b requires a.
+
+Reachability is the reflexive-transitive closure:
+
+```text
+Reach(E) : Elem → Elem → Prop
+| refl
+| step
+| trans
+```
+
+For a path from prerequisite `a` to downstream dependent `b`, definedness propagates **backwards**:
+
+```text
+SatStarReq(S,E)
+  :=
+  ∀a b.
+    Reach(E,a,b)
+    → (def(S,b) → def(S,a))
+```
+
+This orientation is normative.
+
+## 10. P0 analysis normalization
+
+P0 extracts only unconditional required atoms.
+
+```text
+ReqEdges0(req(ReqAtom(a,b,req,c)))
   = {(a,b)} if isTop(c)
   = ∅ otherwise
 
-ReqEdges0(atom(_,_,opt,_))  = ∅
-ReqEdges0(atom(_,_,triv,_)) = ∅
-
-ReqEdges0(and D1 D2)  = ReqEdges0(D1) ∪ ReqEdges0(D2)
-ReqEdges0(or  D1 D2)  = ReqEdges0(D1) ∪ ReqEdges0(D2)
-ReqEdges0(tens D1 D2) = ReqEdges0(D1) ∪ ReqEdges0(D2)
-ReqEdges0(seq D1 D2)  = ReqEdges0(D1) ∪ ReqEdges0(D2)
-ReqEdges0(all x D)    = binder-policy extraction
-ReqEdges0(star D)     = ReqEdges0(D)
+ReqEdges0(opt/triv) = ∅
 ```
 
-Union over `or` is deliberately conservative. Binder-residual mode includes only syntactically unconditional edges that do not depend on the binder; otherwise quantified structure remains residual.
+For analysis purposes, structural extraction may conservatively union across `∧`, `⊗`, `∨`, and sequencing regions and may erase symbolic binders according to the declared binder policy.
 
 Define:
 
 ```text
-Edge0_D(a,b) := (a,b) ∈ ReqEdges0(D).
+AnalysisNF0(D)
+  := canon(TC_on_nodes(ReqEdges0(D), Nodes(D)))
 ```
 
-### 8.2 Canonical closure
-
-On `Nodes(D)`, compute reflexive-transitive closure and canonicalize:
+For `(a,b) ∈ AnalysisNF0(D)`:
 
 ```text
-NF0(D)
-:=
-canon(TC_on_nodes(ReqEdges0(D),Nodes(D))).
+VCedge(S,(a,b)) := def(S,b) → def(S,a)
 ```
 
-`canon` uses a fixed total order, deterministic serialization, and deduplication.
-
-An implementation may use Floyd–Warshall, bitset transitive closure, repeated squaring, or another exact finite algorithm. Algorithm choice is not semantic.
-
-### 8.3 Kernel VCs
-
-For a normalized edge:
+and:
 
 ```text
-VCedge(S,(a,b)) := def_S(a)⇒ def_S(b).
+AnalysisVCList0(S,D)
+  := sorted map VCedge over AnalysisNF0(D)
 ```
 
-Then:
+### 10.1 What global AnalysisNF0 is for
+
+It is valid for:
+
+- deterministic graph inspection;
+- diffing;
+- caching;
+- impact analysis;
+- conservative static diagnostics;
+- proving closure properties of a control-free fragment.
+
+It is **not automatically a mandatory proof gate** for the whole `DepSpec` when the spec contains branch choice, sequencing, or binders.
+
+In particular, unioning both sides of `D1 ∨ D2` may create extra VCs that are irrelevant to the chosen branch. Those VCs may be useful analysis facts but cannot be required for completeness of a proof of the disjunction.
+
+## 11. Control-local kernel compilation
+
+Certificate construction uses a control-preserving compiler.
+
+An unconditional required atom becomes a proof obligation:
 
 ```text
-VCList0(S,D)
-:=
-map(VCedge(S),toSortedList(NF0(D))).
+need(
+  VCedge(S,(a,b)),
+  λp. done(pack_req_sat(p))
+)
 ```
 
-The list is canonical, duplicate-free, stable, and content-addressable.
+Kernel evidence is therefore threaded into the proof plan and cannot disappear.
 
-## 9. VC normal form
+Normalization may deduplicate/cache obligations **inside a control region** when a preservation theorem permits it.
 
-The full normalization result is conceptually:
+The compiler must not hoist an obligation:
 
-```text
-VNF(D)=(𝓔,𝓒,𝓠)
-```
+- out of one side of a `choose`;
+- from stage two ahead of a `seq` gate;
+- out from under a symbolic binder;
 
-where:
+unless it has an explicit theorem proving the hoist preserves the plan semantics.
 
-- 𝓔 is the canonical P0/P1 closed edge relation,
-- 𝓒 records guard policy and condition obligations,
-- 𝓠 preserves higher structure as residual proof obligations.
+## 12. VCPlan
 
-Normalization must never pretend to decide disjunctions, arbitrary guards, cryptographic claims, or unbounded quantification.
+`VCPlan(G)` is a proof-directed recipe whose successful discharge returns a stage/result object for goal `G`.
 
-## 10. Residual proof planning
-
-A residual obligation list is insufficient because it destroys sequencing, branching, and binders.
-
-Define a proof-shaped planning language `VCPlan(S,D)`:
+Minimal constructors:
 
 ```text
-done(π)
-  where π : Proof(Sat(S,D))
+done(r)
+  where r : StageResult(...)
 
 need(φ, k)
-  where k : Proof(φ) → VCPlan(S,D)
+  where k : Proof(φ) → VCPlan
 
-both(p,q)
-  -- conjunction / compatible parallel structure
+both(p,q,combine)
 
-choose(p,q)
-  -- disjunction; one branch must be selected as a whole
+choose(p,q,injectLeft,injectRight)
 
-forall(τ,f)
-  where f : (x:τ) → VCPlan(S,D(x))
+forall(τ,f,assemble)
 
 seq(p,q)
   where
-    p : VCPlan(S,D1)
-    q : Proof(Sat(S,D1)) → VCPlan(S,D2)
+    p : VCPlan(D1)
+    q : StageResult(D1) → VCPlan(k(result))
 ```
 
-The `seq` constructor is the operational reflection of the Σ semantics.
+The control structure is semantic, not scheduling decoration.
 
-## 11. ResidualPlan compiler
-
-Define:
-
-```text
-VCGen(S,D)
-:=
-(VCList0(S,D),ResidualPlanNF(S,D)).
-```
+## 13. CompilePlan
 
 Compilation is structural and deterministic.
 
-### Atoms
+### Required atoms
 
-For `atom(a,b,w,c)`:
+- unconditional required atom: emit a `need(VCedge,...)`;
+- guarded required atom: emit the guarded proposition directly, or under P1 require guard-activation evidence first;
+- optional/trivial: no mandatory proof.
 
-- `w ≠ req`: no mandatory residual;
-- `w=req` and `c=⊤`: discharged from the P0 kernel;
-- `w=req` and `c≠⊤`: emit
+### Conjunction / tensor
 
-```text
-phi :=
-(⟦ c⟧_S ∧ def_S(a))⇒ def_S(b)
-```
-
-as:
-
-```text
-need(φ, λpφ. done(pack_atom_sat(pφ)))
-```
-
-### Conjunction and tensor
-
-```text
-Residual(D1 ∧ D2)  = both(Residual(D1), Residual(D2))
-Residual(D1 ⊗ D2)  = both(Residual(D1), Residual(D2))
-```
-
-`WF` supplies tensor compatibility.
+Compile both and combine their stage results according to the domain's compatible post-state/evidence merge rule.
 
 ### Disjunction
 
 ```text
-Residual(D1 ∨ D2) = choose(Residual(D1), Residual(D2))
+choose(CompilePlan(D1), CompilePlan(D2), ...)
 ```
 
-The compiler does not choose a branch heuristically.
+No compiler heuristic commits to a branch.
 
 ### Sequencing
 
 ```text
-Residual(D1 ; D2)
-  = seq(Residual(D1), λπ1. Residual(D2))
+seq(
+  CompilePlan(D1),
+  λr1. CompilePlanAt(r1.post, r1.evidence, k(r1))
+)
 ```
 
-The second-stage plan is not opened without first-stage evidence.
+Stage two is neither opened nor normalized as an active proof obligation until stage one has produced the result it depends on.
 
-### Quantification
+### Universal binder
 
-Binder-residual mode:
+Finite mode expands deterministically.
+
+Symbolic mode preserves:
 
 ```text
-Residual(∀x:τ.D(x))
-  = forall(τ, λx. Residual(D(x)))
+forall(τ, λx. CompilePlan(D(x)), assemble)
 ```
 
-Finite mode may deterministically expand over the enumerated domain.
+### Star
 
-### Closure
+A `star` node uses a closure proof assembled from the control-local required-edge obligations applicable to that region. It is not replaced by an untyped modal proposition.
 
-`star D` is discharged by the kernel reachability result rather than re-encoded as residual logical structure.
+## 14. Plan normalization
 
-## 12. Residual plan canonicalization
+`PlanNF` may canonicalize without changing control semantics.
 
-`ResidualPlanNF` must be deterministic.
+Allowed examples:
 
-At minimum:
+- flatten associative `both` nodes;
+- sort commutative independent children with a canonical key;
+- α-normalize binders;
+- canonicalize proposition rendering;
+- deduplicate identical obligations within a proven-equivalent control region.
 
-- flatten associative `both` nodes,
-- sort commutative `both` children by canonical hash,
-- deterministically order `choose` branches without deleting either,
-- α-normalize binder names,
-- retain sequencing order exactly,
-- canonicalize proposition rendering and sort/binder context before hashing.
+Forbidden without a theorem:
 
-This makes plan shapes diffable and cacheable without altering semantics.
+- merging evidence across disjunction branches;
+- moving stage-two obligations before a sequence gate;
+- erasing binder context;
+- replacing a dependent sequence with a product.
 
-## 13. Obligation graph
+## 15. VCGraph
 
-`RunPlan` compiles a plan into either a finished proof or a structured `VCGraph`.
+`RunPlan` lowers a plan to a solved result or a structured graph.
 
-### 13.1 Proposition node
-
-A `VCNode` records:
+A proposition node records:
 
 ```text
-id       : ObligationId
-path     : ProvenancePath
-ctx      : BinderContext
-prop     : Prop
-class    : {checkable, uncheckable, unknownYet}
-deps     : Set ObligationId
-onProved : Proof(prop) → Continuation
+VCNode:
+  id
+  path
+  ctx
+  prop
+  class ∈ {checkable, uncheckable, unknownYet}
+  deps
+  onProved : Proof(prop) → Continuation
 ```
 
-### 13.2 Control gates
+Control nodes:
 
-The graph also contains non-proposition control nodes.
+- `SeqGate`: stage two is unavailable until a `StageResult` for stage one exists;
+- `ChoiceGate`: one tagged branch establishes the disjunction; evidence from distinct branches is not mixed;
+- `ForallGate`: preserves binder context or finite instantiation policy;
+- optional `JoinGate`: combines compatible independent results for `both`/`⊗`.
 
-**SeqGate**
+## 16. RunPlan
 
-Stage two is unavailable until stage one yields:
+`RunPlan` is pure and deterministic. It compiles; it does not invoke solvers or guess branches.
 
 ```text
-Proof(Sat(S,D1))
+RunPlan(S,Γ,plan)
+  →
+  Solved(StageResult)
+  | Pending(VCGraph, OpenIds)
 ```
 
-**ChoiceGate**
+Behavior:
 
-Exactly one selected branch supplies the disjunction proof. Evidence from distinct branches must not be mixed.
+- `done` returns solved;
+- `need` emits one obligation with continuation;
+- `both` compiles both allowed sides and joins only when both results exist;
+- `choose` preserves branch separation;
+- `forall` expands or preserves a gate;
+- `seq` compiles stage one first and opens stage two only after receiving its `StageResult`.
 
-**ForallGate**
-
-The binder is either:
-
-- deterministically expanded over a finite domain, or
-- retained symbolically with an explicit proof/instantiation policy.
-
-## 14. RunPlan interpreter
-
-`RunPlan` is pure and deterministic. It compiles; it does not invoke tools or guess proof strategies.
-
-```text
-RunPlan(S,plan)
-⇒
-Solved(pi)
-;	ext{or};
-Pending(G,Open).
-```
-
-Constructor behavior:
-
-- `done(π)` → `Solved(π)`;
-- `need(φ,k)` → obligation node carrying continuation `k`;
-- `both(p,q)` → compile both and combine only after both proofs exist;
-- `choose(p,q)` → compile branch structure behind a `ChoiceGate`;
-- `forall(τ,f)` → finite expansion or `ForallGate`;
-- `seq(p,q)` → compile `p` first; if pending, emit `SeqGate`; only after `π1` exists compile `q(π1)`.
-
-This is the engine-level enforcement of non-collapse.
-
-## 15. Stratified verification
+## 17. Prop / CProp / verification
 
 Full propositions are not assumed decidable.
 
 ```text
-Prop   -- full obligation language
-CProp  -- explicitly checkable fragment
+Prop
+CProp
 
 Extract : Prop → Option(CProp)
 
 Verify :
-  Scheme × CProp
-  → sat(cert)
+  SchemeState × EvidenceCtx × CProp
+  →
+  sat(cert)
   | unsat(counterexample)
   | unknown(explanation)
 
 Plan : Prop → VCPlan
 ```
 
-A checker must never turn `unknown` into a proof.
+`unknown` yields no proof.
 
-### 15.1 Environment grounding
+### 17.1 Environment grounding
 
-Every generated VC is interpreted in an explicit environment `Σ` containing relevant parameters, element instantiations, assumptions, and lemmas.
+Every checkable VC is interpreted under an explicit environment `Σ`.
 
-A distinguished environment-consistency obligation is checked first:
+A distinguished root obligation checks consistency/non-vacuity:
 
 ```text
 VCEnvConsistent(Σ)
 ```
 
-For this root obligation only, satisfiability is success.
+For this root alone, SAT may be success.
 
-For universal VCs, SMT use follows counterexample semantics:
+For universal VCs encoded to SMT:
 
 ```text
 check encode(Σ) ∧ ¬encode(vc)
 
-UNSAT => vc proven relative to Σ and the encoding
-SAT   => counterexample / failure
+UNSAT   => proof relative to encoding/TCB
+SAT     => counterexample
 UNKNOWN => no proof
 ```
 
 Every artifact records `envHash`.
 
-### 15.2 Element readiness
+### 17.2 Instantiation/readiness
 
-`VCInst(e)` is a kernel lookup, not an SMT problem.
+`VCInst(e)` is a kernel lookup, not an SMT query.
 
-Define derived readiness:
+A derived `VCElemReady(e)` may summarize:
 
-```text
-VCElemReady(e)
-```
+- instantiation;
+- type/local contracts;
+- prerequisite readiness;
+- required predecessor evidence.
 
-meaning instantiation, type/local constraints, and predecessor readiness are proven. Higher-level obligations depend on readiness for all elements they mention.
-
-## 16. Solver loop
-
-The solver layer is separate from `RunPlan`.
-
-1. Run the pure compiler/interpreter.
-2. Classify open proposition nodes with `Extract`.
-3. Invoke appropriate trusted/checkable backends for `CProp`.
-4. On `sat(cert)`, obtain a proof term through the trusted checker boundary.
-5. Feed the proof to `onProved`.
-6. Splice newly unlocked downstream plan fragments into the graph.
-7. Continue until solved or until a fixed point of uncheckable/unknown obligations is reached.
-
-Search policy, branch preference, proof assistant invocation, SMT scheduling, and human interaction belong here, never in the semantic kernel.
-
-## 17. P1 evidence-driven guard refinement
-
-P1 activates guarded dependency edges using explicit evidence.
+## 18. P1 evidence-driven guard activation
 
 Define:
 
 ```text
-Active(S,c) : Prop
+Active(S,Γ,c) : Prop
 ```
 
-and, for an evidence set `Ev`:
+An active guarded prerequisite edge is:
 
 ```text
-Edge1(S,D,Ev)(a,b)
+Edge1(S,Γ,D,Ev)(a,b)
 ```
 
-iff a required atom `atom(a,b,req,c)` occurs in `D` and evidence in `Ev` proves `Active(S,c)`.
+iff `ReqAtom(a,b,req,c)` occurs and `Ev` contains accepted evidence for `Active(S,Γ,c)`.
 
-Then compute:
+Then:
 
 ```text
-NF1(D,Ev)
-=
-canon(TC_on_nodes(Edge1(D,Ev),Nodes(D))).
+AnalysisNF1(D,Ev)
+  := canon(TC_on_nodes(active required edges, Nodes(D)))
 ```
 
-A guarded atom may therefore compile as:
-
-```text
-need(Active(S,c), λpc. activate(a,b,pc); continue)
-```
-
-The solver may maintain incremental transitive closure after activation.
-
-Required monotonicity:
+Guard evidence growth is monotone:
 
 ```text
 Ev ⊆ Ev'
 ⇒
-NF1(D,Ev)⊆ NF1(D,Ev').
+AnalysisNF1(D,Ev) ⊆ AnalysisNF1(D,Ev')
 ```
 
-When `Active(S,⊤)` always holds:
+If syntactic-top guards are always active, every P0 edge is a P1 edge.
 
-```text
-SatStar1(S,D)⇒ SatStar0(S,D).
-```
+This is a refinement of the analysis relation; certificate compilation still preserves control structure.
 
-P1 is therefore an evidence-driven conservative refinement of P0.
+## 19. Explicit existential witnesses
 
-## 18. Witnessed existential claims
+Bare existential proof obligations do not count as evidence.
 
-Bare existential security claims are not sufficient evidence.
-
-Reductions and simulators must be represented with explicit artifacts:
+Use named, pinned artifacts:
 
 ```text
 VCWitnessExists(ref)
-VCWitnessCorrect(ref, spec)
+VCWitnessCorrect(ref,spec)
 
-VCReductionWitness(witness, from, to, loss)
-VCSimulatorWitness(witness, real, ideal, bound)
+VCReductionWitness(ref,from,to,loss,model)
+VCSimulatorWitness(ref,real,ideal,bound,model)
 ```
 
-The witness reference must be pinned and content-addressed where practical.
+A reduction/simulator reference must identify the artifact and its side conditions.
 
-## 19. Bounds and probabilistic composition
+## 20. Security-bound composition
 
-The default bound-composition rule is additive.
+The default generic rule is the union bound when applicable:
 
 ```text
-ε_total ≤ Σ_i ε_i.
+ε_total ≤ Σ_i ε_i
 ```
 
-Using `max` or stronger composition requires explicit probabilistic-independence evidence.
+**Probabilistic independence alone never licenses `max`.**
 
-Independence obligations record an `IndepModel` containing at least:
+Non-default composition uses an explicit theorem-bearing object:
 
-- adversary sharing,
-- state sharing,
-- parallel/sequential/adaptive composition.
+```text
+ComposeLaw:
+  id
+  model
+  inputs
+  sideConditions
+  boundTransform
+  proofRef
+```
 
-All bound expressions generate well-formedness obligations, including:
+Examples may include:
+
+- union bound;
+- independent-event composition such as `1 - Π_i(1-ε_i)` where its event model applies;
+- hybrid-specific tightness theorems;
+- a `max` rule only when a named theorem actually proves that rule for the declared composition.
+
+Bound expressions generate well-formedness VCs such as:
 
 ```text
 VCParamDefined
@@ -708,35 +704,33 @@ VCIsSecurityParam
 VCNonZero
 VCPowWellDefined
 VCProbabilityRange
-VCIndepValid
+VCComposeLawApplicable
 ```
 
 Iteration counts come from named parameters, never guessed from syntax.
 
-## 20. Leakage and constant-time claims
+## 21. Leakage / constant-time claims
 
-Constant-time is treated as noninterference relative to an explicit observation/leakage model.
-
-A claim has the form:
+Constant-time is noninterference relative to an explicit observation model.
 
 ```text
-VCConstTime(f, secrets, publics, LeakageModel)
+VCConstTime(f,secrets,publics,LeakageModel)
 ```
 
 The model records at least:
 
-- timing granularity,
-- variable-time operations,
-- memory/cache observation,
-- branch observation,
-- speculation model,
+- timing granularity;
+- variable-time operations;
+- memory/cache observation;
+- branch observation;
+- speculation model;
 - secret annotation discipline.
 
-Certificates must record the exact model and tool coverage. A constant-time result outside that model is not implied.
+A tool result proves only the model it covers.
 
-## 21. Stable identities and provenance
+## 22. Stable identities and provenance
 
-Define a canonical path vocabulary:
+Canonical path vocabulary:
 
 ```text
 root
@@ -746,296 +740,337 @@ root
 .need[h(prop)]
 ```
 
-A VC identifier is content-addressed:
+VC identity:
 
 ```text
-VCID
-=
-H(
-canonical(AtomVC)
-∥ canonical(Origin)
-∥ canonical(relevant_env_slice)
-).
+VCID :=
+  H(
+    versionTag
+    ∥ canonical(obligation)
+    ∥ canonical(origin)
+    ∥ canonical(relevantEnvSlice)
+  )
 ```
 
-For graph nodes:
+Graph-node identity additionally includes binder/control context.
 
-```text
-id
-=
-H(
-canonical(path)
-∥ canonical(prop)
-∥ canonical(ctx)
-).
-```
+Cache keys include at least:
 
-Cache keys additionally include:
-
-- strategy hash,
-- exact tool version,
+- VCID;
+- strategy hash;
+- exact tool version;
 - tool binary hash.
 
-Canonical encodings must be deterministic, version-tagged, and order-independent wherever the mathematical object is unordered.
+## 23. Evidence classes and claim levels
 
-## 22. Evidence classes and claim levels
-
-Evidence is classified explicitly:
+Evidence classes:
 
 ```text
-EvidenceClass :=
-  Kernel
-| ProofObject
-| ToolRun
-| HumanAttestation
+Kernel
+ProofObject
+ToolRun
+HumanAttestation
+ImportedTheorem
 ```
 
-Claims are:
+Claim status:
 
 ```text
 Proven(evidence)
-Conditional(assumptions)
+Conditional(assumptions,evidence)
 Claimed
+Pending(reason)
 ```
 
-The package must never silently promote one level into another.
+No translation silently promotes authority.
 
-## 23. Certificates
+## 24. Proof certificates versus evidence bundles
 
-A whole-spec certificate is:
+These are intentionally different artifacts.
+
+### 24.1 ProofCertificate
 
 ```text
-Cert(S,D):=Proof(Sat(S,D)).
+ProofCertificate(S,Γ,D)
+  := Proof(Sat(S,Γ,D))
 ```
 
-Implementations may also retain per-atom/per-VC evidence products and assemble them structurally.
+It contains only evidence sufficient to construct the proposition.
 
-A certificate bundle records:
+### 24.2 EvidenceBundle
 
-- scheme/spec identity,
-- `envHash`,
-- stable VCIDs,
-- kernel normalization identity,
-- residual plan identity,
-- evidence class per claim,
-- tool name/version/binary hash and invocation metadata,
-- explicit reducer/simulator references,
-- security bound and bound-WF proofs,
-- leakage model,
-- assumptions and conditional claims,
-- provenance links,
-- reviewer/human-attestation metadata where applicable.
+An `EvidenceBundle` may also contain:
 
-## 24. Generic proof-record integration
+- conditional claims;
+- human attestations;
+- claimed/pending obligations;
+- counterexamples;
+- incomplete branches;
+- tool runs that did not yield a proof.
 
-Dep–Proof owns cryptographic semantics. It does **not** own the generic evidence-envelope substrate.
+An EvidenceBundle is audit material and must not be presented as a `ProofCertificate`.
 
-The reusable proof-record boundary is `larsbx/finite-math-kernels/proof_records/`, which provides:
+Both may record:
 
-- content-addressed proof/evidence records,
-- canonical record serialization,
-- identity-bearing dependency edges,
-- closure validation,
-- typed relationship graph projection,
-- evidence-vocabulary translation.
+- scheme/spec identity;
+- `envHash`;
+- stable VCIDs;
+- normalization/plan identities;
+- proof-record references;
+- tool/reviewer metadata;
+- leakage and composition models.
 
-Dep–Proof may emit/consume those records, but:
+## 25. Generic proof-record integration
 
-- `finite-math-kernels` must not interpret `Sat`, security games, leakage models, or crypto assumptions;
-- a complete proof-record closure is not itself a proof of a cryptographic proposition;
-- crypto-composer remains responsible for the checker/proof semantics that justify a claim.
+The generic evidence substrate is currently:
 
-## 25. Trusted computing base
+```text
+larsbx/finite-math-kernels/kernel/proof_records/
+```
 
-The TCB must be written down for every certificate profile.
+It owns generic:
+
+- content-derived record identity;
+- canonical serialization;
+- evidence classes/outcomes;
+- identity-bearing dependency edges;
+- dependency alternatives;
+- structural closure;
+- typed relationship graph surfaces;
+- proof-graph representation normalization.
+
+It does **not** own:
+
+- `Sat`;
+- crypto game truth;
+- certificate acceptance;
+- reduction correctness;
+- leakage-model adequacy.
+
+A complete generic record closure is not definitionally a Dep–Proof certificate.
+
+### 25.1 Edge-direction boundary
+
+FMK's typed proof graph may use premise → conclusion for proof sufficiency.
+
+Dep–Proof's prerequisite arrow uses prerequisite → dependent syntax but backward definedness implication:
+
+```text
+a ⊸ b      means b requires a
+Reach(a,b) gives def(b) → def(a)
+```
+
+Adapters must type these relations explicitly; no edge may be translated by position alone.
+
+## 26. Structural semantic oracle integration
+
+`larsbx/semantic-categorical-oracle` may implement an explicitly registered `dep-proof-structure/v1` contract **after** the domain publishes canonical vectors.
+
+Permitted normative questions may include:
+
+- AST interpretation;
+- canonical normal form;
+- α-equivalence;
+- preservation of branch separation;
+- preservation of binder context;
+- preservation of sequencing/control gates;
+- composition-preserving rendering.
+
+Globally excluded authority remains:
+
+- mathematical proof;
+- cryptographic certificate acceptance;
+- effect authorization;
+- persisted state.
+
+The domain-owned vectors/specification remain in `crypto-composer`; Haskell may become the executable semantic oracle for the registered structural questions only.
+
+## 27. Trusted computing base
+
+Each certificate profile names its TCB.
 
 At minimum:
 
-1. the implementation of `Sat` and relevant type/kind interpretation;
-2. the proof kernel or trusted proof-object checker;
-3. the `CProp` verifier-to-proof bridge;
-4. canonical serialization/hash routines used for identifiers;
-5. compiler correctness assumptions until mechanized;
-6. imported theorem trust and hypothesis checks explicitly recorded.
+1. `Sat` and sort/kind interpretation;
+2. state/evidence transition semantics for `StageResult`;
+3. the proof kernel or proof-object checker;
+4. the `CProp` verifier-to-proof bridge;
+5. canonical serialization/hash routines;
+6. compiler/interpreter correctness assumptions until mechanized;
+7. imported theorem trust and hypothesis checking;
+8. each non-default `ComposeLaw` theorem/reference.
 
-The central rule is:
+## 28. Corrected theorem ledger
 
-> `Verify(S,cφ)=sat(cert)` implies `φ` only through the declared trusted checker for `CProp`; every non-checkable proposition requires a proof term, imported theorem with checked hypotheses, or explicit human-attested conditional claim.
+### Structural
 
-## 26. Theorem ledger
+**T1 — compositionality.** `Sat` follows the declared constructors.
 
-The implementation and mechanization effort should target the following statements.
+**T2 — dependency-closed refinement monotonicity.**
 
-### Structural satisfaction
+Arbitrary increase of definedness is **not** monotone.
 
-**T1 — compositionality.** `Sat` follows the constructors of `DepSpec`.
-
-**T2 — scheme-upgrade monotonicity.** Under a valid scheme-state preorder and stable guards:
+A valid theorem requires:
 
 ```text
-Sat(S,D)⇒ Sat(S',D).
+ClosedRefinement(S,Γ,D,S',Γ')
+∧ Sat(S,Γ,D)
+⇒ Sat(S',Γ',D)
 ```
 
-**T3 — weakening in spec strength.** For an explicitly defined spec preorder:
+where `ClosedRefinement` proves that newly available dependents do not appear without all prerequisites/guards/evidence required by `D`.
+
+**T3 — weakening in specification strength.**
+
+For an explicitly defined preorder:
 
 ```text
-D_1 ⊑ D_2
+D1 ⊑ D2
 ⇒
-Sat(S,D_2)⊢ Sat(S,D_1).
+Sat(S,Γ,D2) ⊢ Sat(S,Γ,D1)
 ```
+
+subject to the constructor-specific preorder rules.
 
 ### Sequencing
 
-**T4 — first projection.** A proof of `Sat(S,D1;D2)` yields a proof of `Sat(S,D1)`.
+**T4 — first-stage projection.** A sequential discharge exposes its first `StageResult`.
 
-**T5 — non-collapse.** In general there is no context-free construction:
+**T5 — non-collapse.** There is no generic context-free map from independent proofs of `D1` and a pre-state `D2` into a proof of the dependent sequence when `D2` depends on `r1.post` or `r1.evidence`.
 
-```text
-Sat(S,D_1)∧ Sat(S,D_2)
-	o
-Sat(S,D_1;D_2).
-```
+**T6 — associativity.** Holds only after defining and proving associativity of the state/evidence transition/merge semantics.
 
-**T6 — associativity up to dependent-pair isomorphism.**
+**T7 — unit laws.** Hold only for an explicit neutral stage result and transition law.
 
-**T7 — unit laws** for a neutral dependency spec `1`, if introduced.
-
-### Closure
+### Prerequisite closure
 
 **T8 — reachability reflexivity.**
 
-**T9 — propagation transitivity.**
+**T9 — reverse definedness propagation transitivity.**
+
+If `Reach(a,b)` and `Reach(b,c)`, then a closure proof yields:
+
+```text
+def(c) → def(b) → def(a)
+```
 
 **T10 — closure idempotence.**
 
-**T11 — one-step edges are contained in closure.**
+**T11 — every one-step required edge is represented in closure.**
 
-### Incrementality and certificates
+### P0 analysis normalization
 
-**T12 — reachability-bounded recheck.** A localized change can only affect obligations in the dependency influence region stated by the implementation's change model.
-
-**T13 — certificate soundness.** A well-typed certificate proves `Sat(S,D)`.
-
-**T14 — structural certificate assembly.** Per-atom/per-subplan evidence assembles into the whole-spec proof under `WF(D)`.
-
-**T15 — CProp verifier soundness.** A `sat` result validates the proposition through the declared trusted kernel/checker.
-
-### Normalization
+For a control-free prerequisite fragment, define `SatStar0` using the corrected reverse implication.
 
 **NF-Sound.**
 
 ```text
 SatStar0(S,D)
 ⇒
-⋀ VCList0(S,D).
+⋀ AnalysisVCList0(S,D)
 ```
 
-**NF-Complete.**
+**NF-Complete (fragment-local).**
 
 ```text
-⋀ VCList0(S,D)
+⋀ AnalysisVCList0(S,D)
 ⇒
-SatStar0(S,D).
+SatStar0(S,D)
 ```
+
+provided computed transitive closure exactly represents `Reach` on `Nodes(D)`.
 
 **NF-Compare.**
 
-```text
-NF0(D_1)=NF0(D_2)
-⇒
-⋀ VCList0(S,D_1)
-⇔
-⋀ VCList0(S,D_2).
-```
+Equal canonical analysis normal forms imply equal kernel-analysis conjunctions.
 
-### Well-formedness
+**No full-language completeness claim** is made for a global union across `∨`, sequencing, or symbolic binders.
 
-**WF1.** `Nodes(D)` contains all atom endpoints and guard dependencies.
+### P1
 
-**WF2.** `NF0` is deterministic and α-stable under the allowed syntax equivalences.
+**P1 edge inclusion.** Top-guard P0 edges are contained in P1 when top is active.
 
-**WF3.** Well-formed tensor operands satisfy the declared non-aliasing/resource discipline.
-
-### P1 refinement
-
-**P1-P0.**
-
-```text
-SatStar1(S,D)⇒ SatStar0(S,D)
-```
-
-when top guards are always active.
-
-**P1-Monotone.**
+**P1 evidence monotonicity.**
 
 ```text
 Ev ⊆ Ev'
-⇒ NF1(D,Ev)⊆ NF1(D,Ev').
+⇒ AnalysisNF1(D,Ev) ⊆ AnalysisNF1(D,Ev')
 ```
 
-### Engine
+### Compiler/interpreter
 
-**E1 — interpreter soundness.** `RunPlan = Solved(π)` implies `π : Proof(Sat(S,D))`.
+**C1 — obligation preservation.** Every atomic obligation needed by the final `Sat` proof has a proof-consuming path in the compiled plan.
 
-**E2 — pending-graph soundness.** Any proof assignment satisfying all open proposition nodes while respecting Seq/Choice/Forall gates deterministically reconstructs a proof of the plan goal.
+**C2 — control preservation.** Compilation preserves branch separation, sequencing gates, and binder context.
 
-**E3 — causal progress.** Newly generated obligations arise only from continuations causally downstream of discharged obligations; provenance is preserved.
+**E1 — solved soundness.** `RunPlan = Solved(r)` implies the result contains a proof of the goal satisfaction at the declared state/context.
 
-## 27. Important qualification on incremental verification
+**E2 — pending-graph soundness.** Any assignment of proofs to open proposition nodes that respects all gates reconstructs a solved result.
 
-“Minimal recheck set” must be parameterized by the actual change semantics.
+**E3 — causal progress.** Newly generated obligations arise only from continuations downstream of already discharged nodes/gates.
 
-For a pure definedness-propagation kernel, an obligation `def(a)→def(b)` can change whenever either endpoint's definedness changes. Therefore the implementation must compute the affected VC set from the set of actually changed nodes (or a formally justified influence relation), not merely from antecedent reachability.
+### Verification/certificates
 
-The up-closure theorem is valid only under an explicit propagation discipline proving that changes outside that region cannot modify either endpoint of an omitted VC.
+**V1 — CProp verifier soundness.** `sat(cert)` yields a proof only through the declared trusted checker.
 
-This qualification is normative: incremental optimization must not weaken verification soundness.
+**V2 — ProofCertificate soundness.** A well-formed `ProofCertificate(S,Γ,D)` inhabits `Sat(S,Γ,D)`.
 
-## 28. Categorical claims
+**V3 — EvidenceBundle non-promotion.** Presence of claimed/pending/conditional evidence never implies a ProofCertificate without the required proof bridge.
 
-The required categorical structure is intentionally modest.
+## 29. Incremental verification
 
-- `DepSpec` under declared-strength inclusion forms a preorder after the chosen quotient/equivalence.
-- propositions under entailment form an entailment preorder.
-- stronger specifications entail weaker obligations:
+Incremental recheck is parameterized by a **change model**.
+
+For a required-edge VC:
 
 ```text
-D_1 ⊑ D_2
-⇒
-Sat(S,D_2)⊢ Sat(S,D_1).
+def(dependent) → def(prerequisite)
 ```
 
-No adjunction, cartesian closure, or thin-category claim is made unless the required objects, morphisms, equivalences, and hom-set correspondence are explicitly defined.
+the truth value can change if either endpoint's definedness or any relevant guard/context changes.
 
-Scheme-indexed proofs naturally suggest a fibration/comprehension interpretation, but that remains an interpretation until mechanized.
+Therefore an implementation computes affected obligations from:
 
-## 29. Crypto-specific extension axes
+- changed scheme elements;
+- changed guards/evidence;
+- control-region activation;
+- the declared influence relation.
 
-The dependency kernel is domain-generic; `crypto-composer` supplies domain objects.
+An up-closure optimization is valid only when a theorem proves omitted endpoints and guards cannot change under the chosen update model.
 
-The security component should eventually separate:
+## 30. Categorical restraint
+
+Required claims are modest:
+
+- dependency specs may form a preorder after the chosen equivalence/quotient;
+- propositions form an entailment preorder;
+- stronger well-defined specs entail weaker obligations under the declared preorder.
+
+No adjunction, cartesian closure, thin-category identification, or fibration theorem is claimed without the formal categories/functors and proof.
+
+A fibration/comprehension interpretation remains a useful design guide, not a theorem by prose.
+
+## 31. Crypto-specific extension axes
+
+The security layer should separate:
 
 ```text
-Σ_GAME  -- game kernel, worlds, oracles, win predicate
-Σ_OBS   -- view/observation/leakage semantics
-Σ_WIT   -- witness relation, verifier, extractor
-Σ_RED   -- reductions, loss, cost, policy, composition
+Σ_GAME
+Σ_OBS
+Σ_WIT
+Σ_RED
 ```
 
-Corresponding code domains are expected to grow under:
+where:
 
-```text
-src/games/
-src/observables/
-src/witnesses/
-src/reductions/   -- or proof/ reductions if kept together
-```
+- GAME owns security worlds/oracles/win predicates;
+- OBS owns views/leakage models;
+- WIT owns relations/verifiers/extractors;
+- RED owns explicit proof transformers, models, costs, losses, and composition laws.
 
-These domain objects may generate DepSpec obligations; they do not replace the Dep–Proof kernel.
+These generate rich obligations; they do not replace the Dep–Proof kernel.
 
-## 30. Initial implementation layout
-
-The intended `crypto-composer` layout is:
+## 32. Initial implementation layout
 
 ```text
 src/
@@ -1044,11 +1079,12 @@ src/
     well_formed.zig
     satisfaction.zig
     reach.zig
-    normalize.zig
-    residual.zig
+    analysis_normalize.zig
+    compile_plan.zig
 
   proof/
     proposition.zig
+    stage_result.zig
     plan.zig
     graph.zig
     run_plan.zig
@@ -1058,59 +1094,68 @@ src/
   games/
   observables/
   witnesses/
+  reductions/
 
   constraints/      # existing checks become CProp backends
-  schemas/          # existing CompositionGraph remains scheme-state/data-flow IR
-  types/
-  catalog/
+  schemas/          # CompositionGraph remains concrete construction/data-flow IR
   emit/
 ```
 
-The existing `CompositionGraph` is retained. It models actual cryptographic/data-flow structure; Dep–Proof models what must be supplied/proved about a scheme and how those proofs depend on one another.
+`CompositionGraph` remains a source of scheme state/checkable facts. It is not replaced by the proof calculus.
 
-## 31. Mechanization plan
+## 33. Mechanization order
 
-The first proof-assistant slice should be intentionally small:
+First slice:
 
-1. finite `Elem`,
-2. `Atom`, `DepSpec` without rich crypto contracts,
-3. `inst`/definedness,
-4. inductive `Reach`,
-5. `ReqEdges0`, `Nodes`, `NF0`,
-6. `SatStar0`,
-7. `NF0_sound` and `NF0_complete`,
-8. `WF1` and deterministic normalization lemmas,
-9. `VCPlan` sequencing fragment,
-10. `RunPlan` soundness for `done/need/both/seq`.
+1. finite `Elem`;
+2. `ReqAtom` with frozen prerequisite orientation;
+3. `SchemeState` and definedness;
+4. inductive `Reach`;
+5. corrected `SatReq` and `SatStarReq`;
+6. `Nodes`, `ReqEdges0`, `AnalysisNF0`;
+7. NF soundness/completeness for the control-free fragment;
+8. a minimal `StageResult`;
+9. `VCPlan` with `done/need/both/seq`;
+10. compiler obligation-preservation;
+11. `RunPlan` solved/pending soundness.
 
-Disjunction, binders, P1, richer evidence classes, and crypto-specific propositions should be layered only after the core correspondence is stable.
+Only then add:
 
-## 32. Non-goals
+- `∨`;
+- binders;
+- P1;
+- rich crypto contracts;
+- solver adapters;
+- semantic-oracle conformance vectors.
+
+## 34. First implementation acceptance criteria
+
+A first conforming slice must prove by tests and/or mechanization that:
+
+1. `a ⊸ b` rejects a state where `b` is defined and `a` is not;
+2. the same relation does not reject merely because `a` exists without `b`;
+3. sequencing stage two can depend on a stage-one post-state/evidence value;
+4. replacing the sequence with a product fails a negative test;
+5. every unconditional kernel atom in a final proof has a proof-consuming plan node;
+6. branch-local obligations cannot be satisfied by mixing evidence from two `choose` branches;
+7. `AnalysisNF0` is deterministic;
+8. global analysis normalization is not used as a mandatory disjunction proof gate;
+9. arbitrary definedness extension is not accepted as a monotonicity theorem;
+10. non-default security bound composition names a `ComposeLaw`;
+11. `unknown` never yields proof;
+12. an FMK proof-record closure does not automatically become a ProofCertificate;
+13. a structural oracle result never acquires certificate-acceptance authority.
+
+## 35. Non-goals
 
 Dep–Proof does not:
 
-- decide arbitrary cryptographic propositions,
-- infer that an empirical result is a theorem,
-- infer probabilistic independence,
-- infer a reduction witness from an implication label,
-- claim standard-model security from ROM/QROM evidence without a concrete bridge theorem,
-- flatten quantified or branching obligations into a semantically weaker list,
-- make `finite-math-kernels` responsible for crypto semantics,
-- replace the existing composition/data-flow graph.
-
-## 33. Acceptance criteria for the first implementation slice
-
-A first implementation is conforming only when:
-
-1. the arrow convention is enforced in code/docs/tests;
-2. `Sat` is scheme-indexed;
-3. sequencing cannot be represented as plain conjunction;
-4. `WF`, `Nodes`, `ReqEdges0`, `Reach`, `NF0`, and `VCList0` are deterministic;
-5. normalization fixtures prove stable ordering and closure behavior;
-6. guarded atoms remain residual unless explicitly activated;
-7. `ResidualPlan` preserves `∨`, `∀`, and `;`;
-8. `RunPlan` delays sequence stage two until first-stage evidence exists;
-9. `unknown` never becomes a proof;
-10. stable identifiers include environment/provenance context;
-11. evidence imported from `finite-math-kernels/proof_records` is treated as evidence metadata, not as an automatic proof of `Sat`;
-12. tests cover a negative case for every semantic invariant introduced.
+- decide arbitrary cryptographic propositions;
+- identify prerequisite edges with proof-sufficiency edges;
+- infer reductions/simulators from labels;
+- promote empirical evidence to theorem status;
+- promote generic proof-record closure to cryptographic proof;
+- use independence as a generic license for a `max` bound;
+- flatten branching, binders, or sequencing into a proof-obligation list;
+- move certificate acceptance into `finite-math-kernels` or `semantic-categorical-oracle`;
+- replace `CompositionGraph`.
