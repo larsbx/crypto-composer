@@ -478,22 +478,31 @@ unless it has an explicit theorem proving the hoist preserves the plan semantics
 
 ## 12. VCPlan
 
-`VCPlan(G)` is a proof-directed recipe whose successful discharge returns a stage/result object for goal `G`.
+`VCPlan(S,Γ,D)` is a proof-directed recipe whose successful discharge returns a `StageResult(S,Γ,D)` for that exact state, evidence context, and specification.
 
 Minimal constructors:
 
 ```text
 done(r)
-  where r : StageResult(...)
+  where r : StageResult(S,Γ,D)
 
 need(φ, k)
-  where k : Proof(φ) → VCPlan
+  where k : Proof(φ) → VCPlan(S,Γ,D)
 
 both(p,q,combine)
+  where combine :
+    StageResult(S,Γ,D1)
+    → StageResult(S,Γ,D2)
+    → StageResult(S,Γ,D1 ∧ D2)
 
 choose(p,q,injectLeft,injectRight)
+  where injectLeft  : StageResult(S,Γ,D1) → StageResult(S,Γ,D1 ∨ D2)
+        injectRight : StageResult(S,Γ,D2) → StageResult(S,Γ,D1 ∨ D2)
 
 forall(τ,f,assemble)
+  where f : (x:τ) → VCPlan(S,Γ+x,D(x))
+        assemble : (Πx. StageResult(S,Γ+x,D(x)))
+                   → StageResult(S,Γ,∀x:τ.D(x))
 
 seq(p,q)
   where
@@ -504,6 +513,10 @@ seq(p,q)
             bindStageResult(Γ, k.var, r1),
             instantiateStage(k, r1)
           )
+
+The result index of `seq(p,q)` is the same dependent sequential goal
+`seq(D1,k)` interpreted at `(S,Γ)`. In particular, `q` cannot return a
+result for an unrelated specification or context.
 ```
 
 The control structure is semantic, not scheduling decoration.
@@ -581,7 +594,7 @@ Forbidden without a theorem:
 
 ## 15. VCGraph
 
-`RunPlan` lowers a plan to a solved result or a structured graph.
+`RunPlan` lowers an indexed `VCPlan(S,Γ,D)` to either `Solved(StageResult(S,Γ,D))` or a structured graph whose continuations preserve that same goal index.
 
 A proposition node records:
 
@@ -605,13 +618,13 @@ Control nodes:
 
 ## 16. RunPlan
 
-`RunPlan` is pure and deterministic. It compiles; it does not invoke solvers or guess branches.
+`RunPlan` is pure and deterministic. It compiles; it does not invoke solvers or guess branches. Its type preserves the plan indices so a continuation cannot change the state/context/specification goal except through the declared dependent constructor.
 
 ```text
-RunPlan(S,Γ,plan)
+RunPlan(S,Γ,D, plan : VCPlan(S,Γ,D))
   →
-  Solved(StageResult)
-  | Pending(VCGraph, OpenIds)
+  Solved(StageResult(S,Γ,D))
+  | Pending(VCGraph(S,Γ,D), OpenIds)
 ```
 
 Behavior:
@@ -1071,7 +1084,7 @@ Ev ⊆ Ev'
 
 **C2 — control preservation.** Compilation preserves branch separation, sequencing gates, and binder context.
 
-**E1 — solved soundness.** `RunPlan = Solved(r)` implies the result contains a proof of the goal satisfaction at the declared state/context.
+**E1 — solved soundness.** If `RunPlan(S,Γ,D,plan) = Solved(r)`, then `r : StageResult(S,Γ,D)` and therefore `r.proof : Proof(Sat(S,Γ,D))`.
 
 **E2 — pending-graph soundness.** Any assignment of proofs to open proposition nodes that respects all gates reconstructs a solved result.
 
