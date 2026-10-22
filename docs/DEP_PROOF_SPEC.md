@@ -281,6 +281,13 @@ Two modes are permitted:
 
 The second is the default.
 
+For the first mechanized kernel, a universal body is **proof-only**: each
+instantiation must return a reflexive/pure stage with the same input state.
+A later stateful universal may be admitted only with an explicit
+`ForallStages` assembler that proves all per-instance transitions admit one
+coherent parent post-state/evidence transition. There is no implicit merge of
+a family of post-states.
+
 ### WF-6 — closure operands
 
 The first mechanized `star` form is restricted to a **closure-eligible prerequisite fragment**:
@@ -394,6 +401,19 @@ MergeStages(S,Γ,D1,D2,target) :=
 
 A merge implementation must prove that its final post-state/evidence is a
 valid `RefinesStage` transition for the target specification.
+
+Universal assembly is likewise explicit:
+
+```text
+ForallStages(S,Γ,τ,D) :=
+  (results : Πx:τ. StageResult(S,Γ+x,D(x)))
+  → StageResult(S,Γ,∀x:τ.D(x))
+```
+
+The initial `pureForall` assembler is defined only when every result is
+reflexive on `S`; it constructs the universal proof pointwise and returns a
+`pureStage`. Any stateful `ForallStages` implementation must supply its own
+coherence/merge theorem and `RefinesStage` proof.
 
 Sequential composition has a distinct normative law because the second stage
 starts from the first stage's output:
@@ -605,10 +625,9 @@ choose(p,q,injectLeft,injectRight)
   where injectLeft  : StageResult(S,Γ,D1) → StageResult(S,Γ,D1 ∨ D2)
         injectRight : StageResult(S,Γ,D2) → StageResult(S,Γ,D1 ∨ D2)
 
-forall(τ,f,assemble)
+forall(τ,f,assembleForall)
   where f : (x:τ) → VCPlan(S,Γ+x,D(x))
-        assemble : (Πx. StageResult(S,Γ+x,D(x)))
-                   → StageResult(S,Γ,∀x:τ.D(x))
+        assembleForall : ForallStages(S,Γ,τ,D)
 
 seq(p,q,assembleSeq)
   where
@@ -703,13 +722,22 @@ Stage two is neither opened nor normalized as an active proof obligation until s
 
 ### Universal binder
 
-Finite mode expands deterministically.
+Finite mode expands deterministically but still requires a declared
+`ForallStages` assembler for the resulting family.
 
 Symbolic mode preserves:
 
 ```text
-forall(τ, λx. CompilePlan(D(x)), assemble)
+forall(
+  τ,
+  λx. CompilePlan(S,Γ+x,D(x)),
+  assembleForall
+)
 ```
+
+The first implementation uses `assembleForall = pureForall` and therefore
+requires proof-only/reflexive bodies under WF-5. A stateful universal is not
+accepted until a domain-specific coherent assembler is proved.
 
 ### Star
 
@@ -776,7 +804,7 @@ Behavior:
 - `both` compiles both conjunction sides and applies `combineAnd` only when both results exist;
 - `tensor` compiles both compatible tensor sides and applies `combineTensor` only when both results exist;
 - `choose` preserves branch separation;
-- `forall` expands or preserves a gate;
+- `forall` expands or preserves a gate and returns solved only after its declared `assembleForall` constructs the parent `StageResult`;
 - `seq` compiles stage one first, opens stage two only after receiving its `StageResult`, and returns solved only after `assembleSeq` (canonically `composeSeqStage`) constructs a `StageResult` for the whole sequence.
 
 ## 17. Prop / CProp / verification
@@ -838,11 +866,20 @@ A derived `VCElemReady(e)` may summarize:
 
 ## 18. P1 evidence-driven guard activation
 
-Define:
+Define a guard-activation proposition together with a mandatory soundness
+bridge to the proposition used by atomic satisfaction:
 
 ```text
 Active(S,Γ,c) : Prop
+
+ActiveSound :
+  Proof(Active(S,Γ,c))
+  → Proof(evalProp(S,Γ,c))
 ```
+
+The minimal kernel may simply define `Active(S,Γ,c) := evalProp(S,Γ,c)`,
+making `ActiveSound` the identity. A decidable/tool-backed activation is
+allowed only when its trusted checker provides this bridge.
 
 An active guarded prerequisite edge is:
 
@@ -850,7 +887,32 @@ An active guarded prerequisite edge is:
 Edge1(S,Γ,D,Ev)(a,b)
 ```
 
-iff `ReqAtom(a,b,req,c)` occurs and `Ev` contains accepted evidence for `Active(S,Γ,c)`.
+iff `ReqAtom(a,b,req,c)` occurs and `Ev` contains accepted proof evidence
+for `Active(S,Γ,c)`.
+
+When P1 activation is used for certificate compilation, the guarded atom route
+is proof-carrying:
+
+```text
+need(
+  Active(S,Γ,c),
+  λpc.
+    need(
+      VCedge(S,(a,b)),
+      λpe.
+        done(
+          pureStage(
+            S,
+            Γ,
+            pack_guarded_req_sat(ActiveSound(pc), pe)
+          )
+        )
+    )
+)
+```
+
+Thus activating a guard for analysis never silently manufactures the
+`evalProp` premise required by `SatReq`.
 
 Then:
 
@@ -1214,6 +1276,11 @@ Equal canonical analysis normal forms imply equal kernel-analysis conjunctions.
 
 **P1 edge inclusion.** Top-guard P0 edges are contained in P1 when top is active.
 
+**P1 activation soundness.** Every accepted activation proof maps through
+`ActiveSound` to the exact guard proposition used by `SatReq`; therefore a
+P1-activated kernel VC plus activation evidence reconstructs the guarded atom
+satisfaction proof.
+
 **P1 evidence monotonicity.**
 
 ```text
@@ -1377,7 +1444,9 @@ A first conforming slice must prove by tests and/or mechanization that:
 13. a structural oracle result never acquires certificate-acceptance authority;
 14. every `RichObligation` constructor has both a total `RichSat` interpretation and a `CompileRich` route, with a negative test proving that missing evidence cannot produce `done`;
 15. tensor compilation returns `VCPlan(S,Γ,D1 ⊗ D2)` through a tensor-specific assembler, never through the conjunction result type;
-16. a non-reflexive two-stage sequence can construct `StageResult(S,Γ,seq(D1,k))` only through a stage-indexed sequential refinement composition such as `RefinesStage.seq`.
+16. a non-reflexive two-stage sequence can construct `StageResult(S,Γ,seq(D1,k))` only through a stage-indexed sequential refinement composition such as `RefinesStage.seq`;
+17. P1 guard activation must supply `ActiveSound` evidence for the same `evalProp` used by `SatReq`;
+18. the initial universal-binder implementation is proof-only/reflexive, or else supplies an explicit coherent `ForallStages` assembler.
 
 ## 35. Non-goals
 
