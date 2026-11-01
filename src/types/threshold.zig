@@ -1,5 +1,3 @@
-const std = @import("std");
-
 // Issue larsbx/tclmesh#36. This is a DECLARATIVE, UNTRUSTED claim, not a
 // decryption primitive, cryptographic proof, runtime gate, or certificate.
 // Even a structurally consistent contract always needs independent evidence.
@@ -75,8 +73,10 @@ pub const CheckError = error{
     TooManyRequiredResponses,
     UnsupportedSubsetPolicy,
     FullKeyCustody,
+    UnestablishedCustody,
     UnverifiedContribution,
     PlaintextAtEvaluator,
+    UnestablishedDelivery,
     UnsafeFailureBehavior,
 };
 
@@ -147,18 +147,20 @@ pub const Contract = struct {
         if (self.subset_policy != .any_q_claimed) {
             return error.UnsupportedSubsetPolicy;
         }
-        if (self.custody != .independent_shares_claimed) {
-            return error.FullKeyCustody;
+        switch (self.custody) {
+            .independent_shares_claimed => {},
+            .evaluator_full_key => return error.FullKeyCustody,
+            .unknown => return error.UnestablishedCustody,
         }
         if (self.share_verification != .cryptographic_proof_claimed and
             self.share_verification != .malicious_secure_mpc_claimed)
         {
             return error.UnverifiedContribution;
         }
-        if (self.delivery != .recipient_only_claimed and
-            self.delivery != .public_with_policy_claimed)
-        {
-            return error.PlaintextAtEvaluator;
+        switch (self.delivery) {
+            .recipient_only_claimed, .public_with_policy_claimed => {},
+            .kernel_plaintext => return error.PlaintextAtEvaluator,
+            .unknown => return error.UnestablishedDelivery,
         }
         if (self.failure_behavior != .fail_closed_claimed) {
             return error.UnsafeFailureBehavior;
