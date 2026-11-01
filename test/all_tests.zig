@@ -862,6 +862,25 @@ test "threshold contract rejects unknown subset, plaintext and fail-open policie
     try std.testing.expectError(error.UnsafeFailureBehavior, c.checkNecessary());
 }
 
+test "threshold contract reports unknown custody and delivery distinctly" {
+    try requireThresholdTestRationale(
+        "An unknown custody or recipient model cannot be silently counted as safe.",
+        "Unverified status is different from evidence that the evaluator definitely stores a full key.",
+    );
+    var c = sampleThresholdContract();
+    c.custody = .unknown;
+    try std.testing.expectError(error.UnestablishedCustody, c.checkNecessary());
+    c = sampleThresholdContract();
+    c.delivery = .unknown;
+    try std.testing.expectError(error.UnestablishedDelivery, c.checkNecessary());
+    c = sampleThresholdContract();
+    c.share_verification = .unknown;
+    try std.testing.expectError(error.UnverifiedContribution, c.checkNecessary());
+    c = sampleThresholdContract();
+    c.failure_behavior = .unknown;
+    try std.testing.expectError(error.UnsafeFailureBehavior, c.checkNecessary());
+}
+
 test "threshold contract rejects out of range parameters" {
     try requireThresholdTestRationale(
         "The threshold and fault/response budgets must be inside the declared party set.",
