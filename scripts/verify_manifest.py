@@ -1,59 +1,76 @@
 #!/usr/bin/env python3
-"""Verify MANIFEST.SHA256.
+"""Verify MANIFEST.SHA256 covers every tracked source, not untracked caches.
 
-Exits non-zero if any file hash mismatches or referenced files are missing.
-
-TODO(v0.2+): make error output nicer; support ignoring extra files.
+Uses committed Git blob bytes, so a clean Windows CRLF checkout agrees with
+Linux/macOS. This is an integrity/consistency check, not a signed supply-chain
+attestation or a cryptographic proof of source correctness.
 """
 from __future__ import annotations
 
 import hashlib
 from pathlib import Path
+import subprocess
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-MANIFEST = REPO_ROOT / "MANIFEST.SHA256"
+ROOT = Path(__file__).resolve().parents[1]
+MANIFEST_NAME = "MANIFEST.SHA256"
+MANIFEST = ROOT / MANIFEST_NAME
 
-def sha256_file(path: Path) -> str:
-    h = hashlib.sha256()
-    with path.open("rb") as f:
-        for chunk in iter(lambda: f.read(1024 * 1024), b""):
-            h.update(chunk)
-    return h.hexdigest()
+
+def git_bytes(*args: str) -> bytes:
+    return subprocess.run(
+        ["git", "-C", str(ROOT), *args],
+        check=True, capture_output=True,
+    ).stdout
+
+
+def expected_records() -> list[str]:
+    paths = sorted(
+        raw.decode("utf-8")
+        for raw in git_bytes("ls-tree", "-rz", "--name-only", "HEAD").split(b"\0")
+        if raw and raw.decode("utf-8") != MANIFEST_NAME
+    )
+    return [
+        f"{hashlib.sha256(git_bytes('show', 'HEAD:' + path)).hexdigest()}  {path}"
+        for path in paths
+    ]
+
 
 def main() -> int:
-    if not MANIFEST.exists():
-        print("MANIFEST.SHA256 not found. Run: python3 scripts/make_manifest.py")
+    if not MANIFEST.is_file():
+        print("MANIFEST.SHA256 not found. Stage source changes and regenerate it.")
         return 2
 
-    ok = True
-    lines = MANIFEST.read_text(encoding="utf-8").splitlines()
-    for i, line in enumerate(lines, start=1):
-        if not line.strip():
-            continue
-        try:
-            expected, rel = line.split("  ", 1)
-        except ValueError:
-            print(f"Malformed line {i}: {line!r}")
-            ok = False
-            continue
+    # Git normalizes platform-native line endings according to repository
+    # attributes; don't hash the CRLF-expanded Windows worktree bytes.
+    actual = MANIFEST.read_text(encoding="utf-8").splitlines()
+    expected = expected_records()
 
-        path = (REPO_ROOT / rel).resolve()
-        if not path.exists():
-            print(f"Missing file: {rel}")
-            ok = False
-            continue
+    if actual != expected:
+        got = set(actual)
+        want = set(expected)
+        for entry in expected:
+            if entry not in got:
+                print(f"Missing/outdated tracked entry: {entry}")
+        for entry in actual:
+            if entry not in want:
+                print(f"Unexpected/stale manifest entry: {entry}")
+        if len(actual) != len(set(actual)):
+            print("Duplicate entries in manifest")
+        return 1
 
-        actual = sha256_file(path)
-        if actual.lower() != expected.lower():
-            print(f"Hash mismatch: {rel}")
-            print(f"  expected: {expected}")
-            print(f"  actual:   {actual}")
-            ok = False
+    # Detect changed tracked source as distinct from hash-record consistency.
+    # Git's own content-filter semantics handle CRLF checkout normalization.
+    diff = subprocess.run(
+        ["git", "-C", str(ROOT), "diff", "--quiet", "--exit-code", "HEAD", "--"],
+        check=False,
+    )
+    if diff.returncode != 0:
+        print("Tracked working tree differs from the checked manifest commit")
+        return 1
 
-    if ok:
-        print("MANIFEST.SHA256 verified OK")
-        return 0
-    return 1
+    print(f"MANIFEST.SHA256 verified OK ({len(expected)} committed source files)")
+    return 0
+
 
 if __name__ == "__main__":
     raise SystemExit(main())
