@@ -755,6 +755,22 @@ test "KEMDEM seal nonce discipline passes" {
     try harness.expectConstraint(proof, std.testing.allocator, &g, &cat, product.requirements, .c3_nonce_discipline, .absent);
 }
 
+test "manifest integrity regression fixtures are proof-associated" {
+    const proof = harness.Proof{
+        .statement = "A source manifest includes only tracked immutable Git blob bytes and refuses missing, duplicated or modified records.",
+        .argument = "Python fixture tests create independent Git repositories and exercise positive, negative, ignored cache and CRLF cases.",
+        .constraints = &[_]harness.ConstraintId{.meta_pdd},
+    };
+    try harness.requireProof(proof);
+
+    const fixture = @embedFile("test_manifest_regression.py");
+    try std.testing.expect(std.mem.indexOf(u8, fixture, "test_ignored_compiler_cache_and_sqlite_excluded") != null);
+    try std.testing.expect(std.mem.indexOf(u8, fixture, "test_windows_crlf_worktree_does_not_change_committed_hashes") != null);
+    try std.testing.expect(std.mem.indexOf(u8, fixture, "test_missing_line_rejected") != null);
+    try std.testing.expect(std.mem.indexOf(u8, fixture, "test_duplicate_line_rejected") != null);
+    try std.testing.expect(std.mem.indexOf(u8, fixture, "test_modified_tracked_source_rejected") != null);
+    try std.testing.expect(std.mem.indexOf(u8, fixture, "test_generator_uses_staged_blob_not_worktree") != null);
+}
 
 // Threshold-contract PDD: this first slice deliberately has no runtime decryption
 // or verifier. All cases are expected to be red until src/types/threshold.zig

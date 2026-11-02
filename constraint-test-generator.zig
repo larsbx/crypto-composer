@@ -42,13 +42,10 @@ pub fn generate(allocator: std.mem.Allocator, options: Options) ![]const u8 {
     return out.toOwnedSlice(allocator);
 }
 
-pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
-
-    const args = try std.process.argsAlloc(allocator);
-    defer std.process.argsFree(allocator, args);
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+    const io = init.io;
+    const args = try init.minimal.args.toSlice(init.arena.allocator());
 
     var options = Options{};
     var constraints_csv: ?[]const u8 = null;
@@ -58,7 +55,7 @@ pub fn main() !void {
     while (i < args.len) : (i += 1) {
         const arg = args[i];
         if (std.mem.eql(u8, arg, "--help")) {
-            try printUsage(std.fs.File.stdout());
+            try printUsage(std.Io.File.stdout(), io);
             return;
         } else if (std.mem.eql(u8, arg, "--constraints")) {
             i += 1;
@@ -98,7 +95,7 @@ pub fn main() !void {
     }
 
     if (constraints_csv == null) {
-        try printUsage(std.fs.File.stdout());
+        try printUsage(std.Io.File.stdout(), io);
         return error.MissingConstraints;
     }
 
@@ -111,16 +108,16 @@ pub fn main() !void {
 
     if (out_path) |path| {
         if (std.mem.eql(u8, path, "-")) {
-            try std.fs.File.stdout().writeAll(output);
+            try std.Io.File.stdout().writeStreamingAll(io, output);
             return;
         }
-        var file = try std.fs.cwd().createFile(path, .{ .truncate = true });
-        defer file.close();
-        try file.writeAll(output);
+        const file = try std.Io.Dir.cwd().createFile(io, path, .{ .truncate = true });
+        defer file.close(io);
+        try file.writeStreamingAll(io, output);
         return;
     }
 
-    try std.fs.File.stdout().writeAll(output);
+    try std.Io.File.stdout().writeStreamingAll(io, output);
 }
 
 const TestKind = enum { negative, positive };
@@ -265,8 +262,8 @@ fn appendFmt(out: *std.ArrayList(u8), allocator: std.mem.Allocator, comptime fmt
     try out.appendSlice(allocator, rendered);
 }
 
-fn printUsage(writer: anytype) !void {
-    try writer.writeAll(
+fn printUsage(file: std.Io.File, io: std.Io) !void {
+    try file.writeStreamingAll(io,
         \\Usage:
         \\  zig run constraint-test-generator.zig -- --constraints c1,c2 [options]
         \\

@@ -1,7 +1,7 @@
 # Quickstart
 
 ## Prerequisites
-- Zig >= 0.13
+- Zig 0.17.0
 - Python 3 (manifest tooling)
 
 ```bash
