@@ -111,7 +111,7 @@ pub const Ledger = struct {
     db: *c.sqlite3,
 
     pub fn init(allocator: std.mem.Allocator, db_path: []const u8) !Ledger {
-        const path_z = try allocator.dupeZ(u8, db_path);
+        const path_z = try allocator.dupeSentinel(u8, db_path, 0);
         defer allocator.free(path_z);
 
         var db: ?*c.sqlite3 = null;

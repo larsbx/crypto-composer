@@ -23,6 +23,21 @@ jobs:
         with:
           version: 0.17.0
 
+      - name: Provision native SQLite for Windows TDD ledger
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          vcpkg install sqlite3:x64-windows
+          $root = $env:VCPKG_INSTALLATION_ROOT
+          if (-not $root) { throw 'VCPKG_INSTALLATION_ROOT not available' }
+          $lib = (Join-Path $root 'installed/x64-windows/lib').Replace('\\', '/')
+          $bin = (Join-Path $root 'installed/x64-windows/bin')
+          if (-not (Test-Path (Join-Path $lib 'sqlite3.lib'))) {
+            throw 'sqlite3.lib not found after vcpkg install'
+          }
+          "SQLITE_LINK_FLAGS=-L$lib" >> $env:GITHUB_ENV
+          "$bin" >> $env:GITHUB_PATH
+
       - name: Run CI (fmt-check, test, manifest verify)
         shell: bash
         run: |

@@ -2,6 +2,8 @@
 # NOTE: This is intentionally minimal. TODO(v0.2+): add cross-platform packaging, release builds, fuzz targets.
 
 ZIG ?= zig
+# On Windows, CI provides the directory containing sqlite3.lib via vcpkg.
+SQLITE_LINK_FLAGS ?=
 
 .PHONY: all build test tdd-green fmt fmt-check clean manifest verify-manifest ci
 
@@ -14,7 +16,7 @@ test:
 	$(ZIG) build test
 
 tdd-green:
-	$(ZIG) run tdd_ledger.zig -lsqlite3 -- require-green
+	$(ZIG) run tdd_ledger.zig $(SQLITE_LINK_FLAGS) -lsqlite3 -- require-green
 
 fmt:
 	$(ZIG) fmt .
