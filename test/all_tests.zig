@@ -781,7 +781,7 @@ fn sampleThresholdContract() composer.types.threshold.Contract {
         .implementation_version = "0.0-test",
         .parameter_profile = "example-profile",
         .source_revision = "unpinned-test-fixture",
-        .source_sha256 = [_]u8{0x42} ** 32,
+        .source_sha256 = @splat(0x42),
         .participants = 4,
         .release_quorum = 3,
         .privacy_corruptions = 2,
