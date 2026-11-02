@@ -781,7 +781,7 @@ fn sampleThresholdContract() composer.types.threshold.Contract {
         .implementation_version = "0.0-test",
         .parameter_profile = "example-profile",
         .source_revision = "unpinned-test-fixture",
-        .source_sha256 = @splat(0x42),
+        .source_sha256 = @as([32]u8, @splat(0x42)),
         .participants = 4,
         .release_quorum = 3,
         .privacy_corruptions = 2,
@@ -921,7 +921,7 @@ test "threshold contract passing arithmetic always remains pending evidence" {
         "Passing necessary constraints never yields a usable cryptographic threshold backend.",
         "No synthetic contract can prove independent custody, verifier soundness, q-subset liveness or recipient delivery.",
     );
-    var c = sampleThresholdContract();
+    const c = sampleThresholdContract();
     try c.checkNecessary();
     switch (c.assess()) {
         .pending_evidence => |obligations| {
