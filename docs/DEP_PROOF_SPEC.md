@@ -272,6 +272,34 @@ WF(D1 ⊗ D2) ⇒ Foot(D1) ∩ Foot(D2) = ∅
 
 Any permitted sharing must be explicit in a richer interference model.
 
+### WF-4a — initial conjunction compatibility
+
+Conjunction is a logical product, but combining two *stage results* may
+require merging their post-states and evidence. Therefore the initial
+well-formed conjunction fragment is intentionally **pure**: a domain-owned
+and mechanically checkable `PureSpec(D1)` and `PureSpec(D2)` judgment
+must prove that any successful child result has a reflexive
+`RefinesStage` transition, unchanged post-state and unchanged evidence
+relative to the same input `(S,Γ)`.
+
+```text
+WF(S,Γ,D1 ∧ D2)
+  ⇒ PureSpec(S,Γ,D1) ∧ PureSpec(S,Γ,D2)
+```
+
+For this fragment, the compiler derives a **canonical**
+`mergePureAnd : MergeStages(S,Γ,D1,D2,D1 ∧ D2)` from the two purity
+proofs. It constructs the pair of child satisfaction proofs and a
+reflexive parent `StageResult`. No independent post-state/evidence
+merging is assumed.
+
+A later stateful conjunction is a **separate constructor or an explicit
+compile-input merge-law registration** that supplies a law for the exact
+`(S,Γ,D1,D2)`, with a proved `RefinesStage` transition. Merely
+declaring that two stateful branches are `WF` without such a law is
+invalid; a missing law cannot be filled by a compiler heuristic or
+solver-local axiom.
+
 ### WF-5 — binders
 
 Two modes are permitted:
@@ -390,7 +418,10 @@ domain supplies the corresponding `RefinesStage.mapSpec` proof.
 
 For two branches begun at the same input, conjunction and tensor require
 explicit compatible merge laws rather than assuming that independently
-produced post-states can be combined:
+produced post-states can be combined. The **initial conjunction** obtains
+its merge law from the WF-4a certified-pure fragment. Stateful
+conjunction is *not* part of this initial fragment unless an explicit
+law-bearing extension is added:
 
 ```text
 MergeStages(S,Γ,D1,D2,target) :=
@@ -718,8 +749,18 @@ is no generic “rich obligation accepted” shortcut.
 
 ### Conjunction
 
-Compile both under the same input and use the declared `combineAnd :
-MergeStages(S,Γ,D1,D2,D1 ∧ D2)`. No implicit post-state merge is permitted.
+Compile both under the same input. By WF-4a, a well-formed
+conjunction in the initial fragment carries two purity proofs; the
+compiler deterministically constructs `combineAnd = mergePureAnd` from
+those proofs. The resulting `both` constructor has type
+`VCPlan(S,Γ,D1 ∧ D2)`.
+
+If either child can change state or evidence, the initial WF predicate
+**rejects** this conjunction. Stateful conjunction needs an explicit
+merge-law-bearing syntax/compilation extension with a justified
+`MergeStages(S,Γ,D1,D2,D1 ∧ D2)`. No implicit merge or missing law is
+permitted; this preserves totality of `CompilePlan` *over well-formed
+initial constructs only*.
 
 ### Tensor
 
@@ -1317,19 +1358,36 @@ At minimum:
 
 **T1 — compositionality.** `Sat` follows the declared constructors.
 
-**T2 — dependency-closed refinement monotonicity.**
+**T2 — prerequisite-fragment refinement monotonicity (not a full-language theorem).**
 
-Arbitrary increase of definedness is **not** monotone.
+Arbitrary increase of definedness is **not** monotone. The first
+mechanized theorem is restricted to the **control-free required-edge
+fragment** `ReqFrag` (required atoms and their pure conjunctions).
+It excludes arbitrary `RichObligation`, stateful sequencing,
+disjunction and symbolic binders.
 
-A valid theorem requires:
+Define `ClosedRefinementReq(S,Γ,D,S',Γ')` for that fragment by:
+(a) persistence of every old defined prerequisite; (b) every newly
+defined dependent of an active required edge has its prerequisite
+defined in `S'`; and (c) no guard becomes newly active on an already
+present dependent without its prerequisite (in particular, guard
+truth may be held stable by an explicit context-preservation proof).
+
+Then the theorem is:
 
 ```text
-ClosedRefinement(S,Γ,D,S',Γ')
+D ∈ ReqFrag
+∧ ClosedRefinementReq(S,Γ,D,S',Γ')
 ∧ Sat(S,Γ,D)
 ⇒ Sat(S',Γ',D)
 ```
 
-where `ClosedRefinement` proves that newly available dependents do not appear without all prerequisites/guards/evidence required by `D`.
+For a *rich* constructor such as `absent(e)`, the counterexample
+`¬def(S,e)` and `def(S',e)` shows why dependency closure alone is
+insufficient. Any later full-language transport theorem must supply
+constructor-specific `RichSat` transport, stage-refinement,
+branch-context and binder-preservation premises, rather than promote
+`ClosedRefinementReq` to arbitrary `Sat` monotonicity.
 
 **T3 — weakening in specification strength.**
 
@@ -1583,7 +1641,9 @@ A first conforming slice must prove by tests and/or mechanization that:
 18. the initial universal-binder implementation is proof-only/reflexive, or else supplies an explicit coherent `ForallStages` assembler;
 19. manual/uncheckable propositions enter through `rich(manual φ)`, so `Plan` remains indexed by the exact `(S,Γ,D)` goal rather than producing an untyped `VCPlan`;
 20. every successful `Extract(Σ,φ)` returns a `reflect` proof map from the verified `CPropSat(Σ,...)` result back to that exact `φ`, and every semantic fact used by `Σ` is proof-carrying;
-21. the initial `pureForall` assembler receives an explicit `PureForallCompat` proof and cannot be applied to arbitrary state-changing child results.
+21. the initial `pureForall` assembler receives an explicit `PureForallCompat` proof and cannot be applied to arbitrary state-changing child results;
+22. a conjunction with two independently state-changing children is rejected by WF-4a unless a separate exact-input merge-law extension is explicitly admitted. The compiler cannot invent `combineAnd`;
+23. a rich absence obligation `absent(e)` satisfied by `S` but falsified by a larger `S'` refutes full-language monotonicity; T2 applies only to `ReqFrag` or to separately proved constructor-specific transport.
 
 ## 35. Non-goals
 
