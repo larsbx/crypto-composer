@@ -23,11 +23,23 @@ jobs:
         with:
           version: 0.13.0
 
-      - name: Manifest regression fixtures (Git blobs, caches, CRLF, tampering)
-        shell: bash
-        run: python3 -m unittest discover -s test -p 'test_manifest_regression.py' -v
-
       - name: Run CI (fmt-check, test, manifest verify)
         shell: bash
         run: |
           make ci
+
+  manifest-regressions:
+    name: Manifest tests (isolated from Zig toolchain)
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate committed source hashes
+        shell: bash
+        run: python3 scripts/verify_manifest.py
+      - name: Run Git-blob and tampering regression fixtures
+        shell: bash
+        run: python3 -m unittest discover -s test -p 'test_manifest_regression.py' -v
