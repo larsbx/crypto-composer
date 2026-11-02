@@ -23,6 +23,10 @@ jobs:
         with:
           version: 0.13.0
 
+      - name: Manifest regression fixtures (Git blobs, caches, CRLF, tampering)
+        shell: bash
+        run: python3 -m unittest discover -s test -p 'test_manifest_regression.py' -v
+
       - name: Run CI (fmt-check, test, manifest verify)
         shell: bash
         run: |
