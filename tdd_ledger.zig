@@ -439,7 +439,8 @@ pub fn requireRunArgs(run_args: ?[]const []const u8) ![]const []const u8 {
 }
 
 fn sleepMillis(io: std.Io, ms: u64) !void {
-    try io.sleep(.fromMilliseconds(ms), .awake);
+    const signed_ms = std.math.cast(i64, ms) orelse return error.SleepDurationOutOfRange;
+    try io.sleep(.fromMilliseconds(signed_ms), .awake);
 }
 
 fn renderBar(buf: []u8, pos: usize) []const u8 {
