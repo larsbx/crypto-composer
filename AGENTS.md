@@ -8,7 +8,7 @@
 ## Build, Test, and Development Commands
 - `make test` (or `zig build test`): compile and run the full suite, including negative constraint cases.
 - `make ci`: format check, tests, and manifest verification; mirrors GitHub Actions expectations.
-- `make fmt` / `make fmt-check`: run Zig formatter locally or verify formatting by diffing.
+- `make fmt` / `make fmt-check`: run Zig formatter locally or verify formatting with `zig fmt --check`.
 - `make manifest` / `make verify-manifest`: regenerate or check `MANIFEST.SHA256` using the Python helpers.
 - `make build`: plain `zig build` if you need a binary artifact.
 

@@ -21,10 +21,10 @@ const c = struct {
         [*c][*c]u8,
         [*c][*c]u8,
     ) callconv(.c) c_int;
-    pub const Destructor = *const fn (?*anyopaque) callconv(.c) void;
+    pub const Destructor = *align(1) const fn (?*anyopaque) callconv(.c) void;
     pub const sqlite3_destructor_type = ?Destructor;
 
-    // SQLite defines SQLITE_TRANSIENT as ((sqlite3_destructor_type)-1).
+    // SQLite treats this all-ones pointer as a sentinel and never calls it.
     pub const SQLITE_TRANSIENT: sqlite3_destructor_type =
         @as(Destructor, @ptrFromInt(std.math.maxInt(usize)));
 
@@ -521,7 +521,7 @@ fn printUsage(file: std.Io.File, io: std.Io) !void {
         \\
         \\Notes:
         \\  --run is required for red/green to enforce test execution.
-        \\  This tool links against sqlite3; compile with -lsqlite3.
+        \\  This tool links against sqlite3; compile with -lc -lsqlite3.
         \\
     );
 }
