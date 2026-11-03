@@ -927,7 +927,7 @@ test "threshold contract passing arithmetic always remains pending evidence" {
         .pending_evidence => |obligations| {
             try std.testing.expect(obligations.len >= 7);
         },
-        .rejected => |_| return error.UnexpectedRejection,
+        .rejected => return error.UnexpectedRejection,
     }
     try std.testing.expect(!@hasDecl(composer.types.threshold.Contract, "decrypt"));
     try std.testing.expect(!@hasDecl(composer.types.threshold.Contract, "enableRelease"));
