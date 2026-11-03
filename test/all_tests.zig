@@ -771,3 +771,164 @@ test "manifest integrity regression fixtures are proof-associated" {
     try std.testing.expect(std.mem.indexOf(u8, fixture, "test_modified_tracked_source_rejected") != null);
     try std.testing.expect(std.mem.indexOf(u8, fixture, "test_generator_uses_staged_blob_not_worktree") != null);
 }
+
+// Threshold-contract PDD: this first slice deliberately has no runtime decryption
+// or verifier. All cases are expected to be red until src/types/threshold.zig
+// adds an inert, necessary-conditions-only checker.
+fn sampleThresholdContract() composer.types.threshold.Contract {
+    return .{
+        .scheme_id = "illustrative-only",
+        .implementation_version = "0.0-test",
+        .parameter_profile = "example-profile",
+        .source_revision = "unpinned-test-fixture",
+        .source_sha256 = @as([32]u8, @splat(0x42)),
+        .participants = 4,
+        .release_quorum = 3,
+        .privacy_corruptions = 2,
+        .byzantine_faults = 1,
+        .client_responses = 3,
+        .subset_policy = .any_q_claimed,
+        .custody = .independent_shares_claimed,
+        .share_verification = .cryptographic_proof_claimed,
+        .delivery = .recipient_only_claimed,
+        .failure_behavior = .fail_closed_claimed,
+    };
+}
+
+fn requireThresholdTestRationale(statement: []const u8, argument: []const u8) !void {
+    try harness.requireProof(.{
+        .statement = statement,
+        .argument = argument,
+        .constraints = &[_]harness.ConstraintId{.meta_pdd},
+    });
+}
+
+test "threshold contract rejects response count mistaken for three-of-four secrecy" {
+    try requireThresholdTestRationale(
+        "Three client responses do not prove three-of-four confidentiality.",
+        "A published one-corruption privacy bound is strictly below q minus one.",
+    );
+    var c = sampleThresholdContract();
+    c.privacy_corruptions = 1;
+    try std.testing.expectError(error.InsufficientPrivacyGuarantee, c.checkNecessary());
+}
+
+test "threshold contract rejects all policy quorums for illustrative KMS numbers" {
+    try requireThresholdTestRationale(
+        "No quorum can satisfy both the one-corruption bound and three-response need.",
+        "For q at most two the output needs too many responses; for q at least three privacy is insufficient.",
+    );
+    var c = sampleThresholdContract();
+    c.privacy_corruptions = 1;
+    for (1..5) |q| {
+        c.release_quorum = @intCast(q);
+        try std.testing.expectError(
+            if (q <= 2) error.TooManyRequiredResponses else error.InsufficientPrivacyGuarantee,
+            c.checkNecessary(),
+        );
+    }
+}
+
+test "threshold contract refuses evaluator-owned complete keys" {
+    try requireThresholdTestRationale(
+        "A threshold contract cannot endorse a full secret key in the evaluator.",
+        "The old TclMesh full ClientKey decrypt violates independent custody even with approvals.",
+    );
+    var c = sampleThresholdContract();
+    c.custody = .evaluator_full_key;
+    try std.testing.expectError(error.FullKeyCustody, c.checkNecessary());
+}
+
+test "threshold contract refuses signatures as share correctness proofs" {
+    try requireThresholdTestRationale(
+        "Signer authentication alone cannot establish a correct partial decryption.",
+        "A cryptographically verified share or audited MPC transcript is required, not a nonempty signature.",
+    );
+    var c = sampleThresholdContract();
+    c.share_verification = .signature_only;
+    try std.testing.expectError(error.UnverifiedContribution, c.checkNecessary());
+}
+
+test "threshold contract rejects unbound source identity" {
+    try requireThresholdTestRationale(
+        "Unidentified source bytes cannot support even a provisional threshold contract.",
+        "A declared exact source identity is a prerequisite, but is not evidence of audited code.",
+    );
+    var c = sampleThresholdContract();
+    c.source_sha256 = null;
+    try std.testing.expectError(error.UnboundSource, c.checkNecessary());
+    c = sampleThresholdContract();
+    c.scheme_id = "";
+    try std.testing.expectError(error.UnboundSource, c.checkNecessary());
+}
+
+test "threshold contract rejects unknown subset, plaintext and fail-open policies" {
+    try requireThresholdTestRationale(
+        "Any-q release requires explicit subset, delivery and failure semantics.",
+        "Fixed party groups, plaintext in kernel and fail-open retries must not be treated as eligible.",
+    );
+    var c = sampleThresholdContract();
+    c.subset_policy = .fixed_group_only;
+    try std.testing.expectError(error.UnsupportedSubsetPolicy, c.checkNecessary());
+    c = sampleThresholdContract();
+    c.delivery = .kernel_plaintext;
+    try std.testing.expectError(error.PlaintextAtEvaluator, c.checkNecessary());
+    c = sampleThresholdContract();
+    c.failure_behavior = .fail_open;
+    try std.testing.expectError(error.UnsafeFailureBehavior, c.checkNecessary());
+}
+
+test "threshold contract reports unknown custody and delivery distinctly" {
+    try requireThresholdTestRationale(
+        "An unknown custody or recipient model cannot be silently counted as safe.",
+        "Unverified status is different from evidence that the evaluator definitely stores a full key.",
+    );
+    var c = sampleThresholdContract();
+    c.custody = .unknown;
+    try std.testing.expectError(error.UnestablishedCustody, c.checkNecessary());
+    c = sampleThresholdContract();
+    c.delivery = .unknown;
+    try std.testing.expectError(error.UnestablishedDelivery, c.checkNecessary());
+    c = sampleThresholdContract();
+    c.share_verification = .unknown;
+    try std.testing.expectError(error.UnverifiedContribution, c.checkNecessary());
+    c = sampleThresholdContract();
+    c.failure_behavior = .unknown;
+    try std.testing.expectError(error.UnsafeFailureBehavior, c.checkNecessary());
+}
+
+test "threshold contract rejects out of range parameters" {
+    try requireThresholdTestRationale(
+        "The threshold and fault/response budgets must be inside the declared party set.",
+        "Zero or excessive quorums, out-of-range corruption and empty response counts have no meaning.",
+    );
+    var c = sampleThresholdContract();
+    c.release_quorum = 0;
+    try std.testing.expectError(error.InvalidQuorum, c.checkNecessary());
+    c = sampleThresholdContract();
+    c.release_quorum = 5;
+    try std.testing.expectError(error.InvalidQuorum, c.checkNecessary());
+    c = sampleThresholdContract();
+    c.client_responses = 0;
+    try std.testing.expectError(error.InvalidResponseCount, c.checkNecessary());
+    c = sampleThresholdContract();
+    c.byzantine_faults = 4;
+    try std.testing.expectError(error.InvalidFaultBound, c.checkNecessary());
+}
+
+test "threshold contract passing arithmetic always remains pending evidence" {
+    try requireThresholdTestRationale(
+        "Passing necessary constraints never yields a usable cryptographic threshold backend.",
+        "No synthetic contract can prove independent custody, verifier soundness, q-subset liveness or recipient delivery.",
+    );
+    const c = sampleThresholdContract();
+    try c.checkNecessary();
+    switch (c.assess()) {
+        .pending_evidence => |obligations| {
+            try std.testing.expect(obligations.len >= 7);
+        },
+        .rejected => return error.UnexpectedRejection,
+    }
+    try std.testing.expect(!@hasDecl(composer.types.threshold.Contract, "decrypt"));
+    try std.testing.expect(!@hasDecl(composer.types.threshold.Contract, "enableRelease"));
+}
