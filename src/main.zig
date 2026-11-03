@@ -32,8 +32,7 @@ pub fn main(init: std.process.Init) !void {
 }
 
 fn usage(io: std.Io) !void {
-    try std.Io.File.stdout().writeStreamingAll(
-        io,
+    try std.Io.File.stdout().writeStreamingAll(io,
         \\crypto-compose v0.1
         \\
         \\Commands (TODO):
