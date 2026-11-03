@@ -16,14 +16,13 @@ test:
 	$(ZIG) build test
 
 tdd-green:
-	$(ZIG) run tdd_ledger.zig $(SQLITE_LINK_FLAGS) -lsqlite3 -- require-green
+	$(ZIG) run tdd_ledger.zig $(SQLITE_LINK_FLAGS) -lc -lsqlite3 -- require-green
 
 fmt:
 	$(ZIG) fmt .
 
 fmt-check:
-	@# zig fmt has no "check" mode; we enforce formatting by diffing.
-	@tmp=$$(mktemp -d);     	rsync -a --exclude .zig-cache --exclude zig-out --exclude .git ./ $$tmp/;     	$(ZIG) fmt $$tmp >/dev/null;     	diff -ruN --exclude .zig-cache --exclude zig-out --exclude .git $$tmp ./;     	rm -rf $$tmp
+	git ls-files -z -- '*.zig' '*.zon' | xargs -0 $(ZIG) fmt --check
 
 clean:
 	rm -rf .zig-cache zig-out
