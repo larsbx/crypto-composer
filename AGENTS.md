@@ -13,7 +13,7 @@
 - `make build`: plain `zig build` if you need a binary artifact.
 
 ## Coding Style & Naming Conventions
-- Use Zig 0.12+ style: `zig fmt` is the source of truth; avoid hand-formatting divergences.
+- Use Zig 0.17.0 style: `zig fmt` is the source of truth; avoid hand-formatting divergences.
 - Favor small, total functions; keep constraint logic explicit with descriptive names (`checkEntropyFlow`, `validateNonceDiscipline`).
 - File naming is snake_case; types and structs are PascalCase; functions/fields use lowerCamelCase.
 - Prefer `// TODO(v0.2+)` markers already in use for incremental work.
